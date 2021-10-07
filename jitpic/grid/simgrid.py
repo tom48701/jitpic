@@ -39,3 +39,22 @@ class simgrid:
         # forward index shift for field solving
         self.f_shift = np.arange(1, Nx+1, dtype=int) 
         return
+
+    def get_field(self, field):
+        """
+        Get the specified field without the buffer cells
+        
+        field : str ('E','B','J') : field to extract 
+        """
+        
+        if field == 'J':
+            f = getattr(self, field)[:,:-4]
+        elif field in ('E','B'):
+            f = getattr(self, field)[:,:-1]
+        else:
+            print('unrecognised field')
+            return
+ 
+        return f
+        
+        

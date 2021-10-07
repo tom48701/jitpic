@@ -1,7 +1,7 @@
 import numba, time, h5py, gc
 import numpy as np
 
-from .utils import make_directory
+from .utils import make_directory, default_inline_plotting_script
 from .grid import simgrid
 from .particles import species
 from .laser import laser
@@ -21,6 +21,7 @@ class simulation:
     functions and diagnostics.
     """
     def __init__(self, x0, x1, Nx, species=[], diag_period=0, 
+                 inline_plotting_script=default_inline_plotting_script,
                  n_threads=numba.get_num_threads(), seed=0  ):
         """ 
         Initialise the simulation, set up the grid at the same time
@@ -55,6 +56,7 @@ class simulation:
                 self.append_species(spec)    
         
         self.diag_period = diag_period 
+        self.inline_plotting_script = inline_plotting_script
         
         self.dt = self.grid.dx
 
@@ -412,15 +414,15 @@ class simulation:
             f.attrs['dt'] = self.dt
             
             f.create_dataset('x', data=self.grid.x)
-            f.create_dataset('Ex', data=self.grid.E[0,:-1] )
-            f.create_dataset('Ey', data=self.grid.E[1,:-1] )
-            f.create_dataset('Ez', data=self.grid.E[2,:-1] )
-            f.create_dataset('Bx', data=self.grid.B[0,:-1] )
-            f.create_dataset('By', data=self.grid.B[1,:-1] )
-            f.create_dataset('Bz', data=self.grid.B[2,:-1] )
-            f.create_dataset('Jx', data=self.grid.J[0,:-4] )
-            f.create_dataset('Jy', data=self.grid.J[1,:-4] )
-            f.create_dataset('Jz', data=self.grid.J[2,:-4] )    
+            f.create_dataset('Ex', data=self.grid.get_field('E')[0] )
+            f.create_dataset('Ey', data=self.grid.get_field('E')[1] )
+            f.create_dataset('Ez', data=self.grid.get_field('E')[2] )
+            f.create_dataset('Bx', data=self.grid.get_field('B')[0] )
+            f.create_dataset('By', data=self.grid.get_field('B')[1] )
+            f.create_dataset('Bz', data=self.grid.get_field('B')[2] )
+            f.create_dataset('Jx', data=self.grid.get_field('J')[0] )
+            f.create_dataset('Jy', data=self.grid.get_field('J')[1] )
+            f.create_dataset('Jz', data=self.grid.get_field('J')[2] )    
             f.create_dataset('rho', data=self.deposit_rho())
             
             for spec in self.species:
@@ -447,72 +449,19 @@ class simulation:
         # make the image directory if it doesn't already exist
         make_directory(imagedir)
         
-            
-        E = self.grid.E[:,:-1] # get the grid fields, without the extra cells 
-        B = self.grid.B[:,:-1]
-        J = self.grid.J[:,:-4]
-        
-        a0 = self.lasers[0].a0 # reference a0 for normalising the plots
-        
-        s1 =  E[1]*B[2] - B[1]*E[2] # forward Poynting vector
-    
-        fig, ax = plt.subplots(figsize=(6,4)) # initialise the figure
-        
-        if len(self.species) > 0: # get the density of the first species
-            ne = abs(self.deposit_single_species(self.species[0]))
-
-            # plot it
-            ax.plot(self.grid.x, ne/self.species[0].n, 
-                c='0.5', label=r'$n_e$', lw=1)   
- 
-        # Ey (first transverse electric field component)
-        ax.plot(self.grid.x, E[1]/a0, 
-            'k', label='$E_y$', lw=1)
-
-        # Ez (second transverse electric field component)
-        ax.plot(self.grid.x, 50*J[0] - 0.5, 
-            'g', label='$J_x$', lw=1)
-        
-        # Ex (longitudinal electric field component)
-        ax.plot(self.grid.x, 10*E[0] - 1., 
-            'b', label='$E_x$', lw=1)
-
-        # sqrt(s1) to retrieve the overall laser amplitude
-        ax.plot(self.grid.x, np.sqrt(abs(s1))*np.sign(s1)/a0, 
-            'r', label='$a$', lw=1)
-        
-        # label the simulation time
-        ax.text(.1,.1, r'$t=%.3f \tau_0$'%self.t, transform=ax.transAxes)
-        
-        # calculate the total EM energy on the grid
-        Eem = (( (self.grid.E**2).sum(axis=0) + (self.grid.B**2).sum(axis=0) )  ).sum() * self.grid.dx / 2.
-        
-        # calculate the total kinetic energy in the particles
-        Ek = 0.
-        for spec in self.species:
-            Ek += ( spec.KE() * self.grid.dx ).sum() 
-        
-        # show the total energy (should not increase over the simulation) ((much)) 
-        ax.text(.1,.9, r'$\mathcal{E}_{\mathrm{EM}}=%.3e $'%Eem, transform=ax.transAxes)
-        ax.text(.1,.8, r'$\mathcal{E}_{\mathrm{K}}=%.3e $'%Ek,  transform=ax.transAxes)
-        ax.text(.6,.9, r'$\mathcal{E}_{\mathrm{EM}}+\mathcal{E}_{\mathrm{K}}=%.3e $'%(Ek+Eem), transform=ax.transAxes)
-        
-        # set some figure parameters
-        ax.set_xlim(self.grid.x0, self.grid.x1)
-        ax.set_ylim(-2,2)
-        ax.legend(loc='lower right', fontsize=fontsize)
-        ax.set_xlabel('$x/\lambda_0$', fontsize=fontsize)
-        fig.tight_layout()
-        
-        # set the file name if specified
+        # generate a figure
+        fig = self.inline_plotting_script( self, fontsize=fontsize )
+   
+        # set the file name and save
         if index is not None:
-            plt.savefig('%s/%.8i.png'%(imagedir, index), dpi=dpi)            
+            fig.savefig('%s/%.8i.png'%(imagedir, index), dpi=dpi)            
         else:
-            plt.savefig('%s/%.8i.png'%(imagedir, self.iter), dpi=dpi)
+            fig.savefig('%s/%.8i.png'%(imagedir, self.iter), dpi=dpi)
         
         # clean up
         plt.close(fig) 
         gc.collect()
+        
         return
     
     def add_timeseries_diagnostic( self, fields, cells, 
