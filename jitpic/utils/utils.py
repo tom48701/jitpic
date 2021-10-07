@@ -80,3 +80,14 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         fig.tight_layout()
         
         return fig
+    
+def quadratic_shape_factor(x):
+
+    if x>= -1.5 and x < -0.5:
+        return .5*(x**2+3*x+9/4)
+    elif x >= -0.5 and x < 0.5:
+        return -x**2 + .75
+    elif x >= 0.5 and x < 1.5:
+        return .5*(x**2-3*x+9/4)
+    else:
+        return 0.

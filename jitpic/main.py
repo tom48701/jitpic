@@ -1,7 +1,8 @@
 import numba, time, h5py, gc
 import numpy as np
 
-from .utils import make_directory, default_inline_plotting_script
+from .utils import make_directory, default_inline_plotting_script, \
+                    quadratic_shape_factor
 from .grid import simgrid
 from .particles import species
 from .laser import laser
@@ -14,17 +15,6 @@ from .numba_functions import deposit_numba, interpolate_numba, \
 
 import matplotlib.pyplot as plt 
 #plt.style.use('classic')  # revert to 1.x style
-
-def quadratic(x):
-
-    if x>= -1.5 and x < -0.5:
-        return .5*(x**2+3*x+9/4)
-    elif x >= -0.5 and x < 0.5:
-        return -x**2 + .75
-    elif x >= 0.5 and x < 1.5:
-        return .5*(x**2-3*x+9/4)
-    else:
-        return 0.
             
 class simulation:
     """
@@ -220,10 +210,10 @@ class simulation:
                     
                     rp1 = (r[i]+1)%self.grid.Nx
     
-                    rho[l[i]-1] += quadratic(2-delta) * spec.q * w[i]
-                    rho[l[i]]   += quadratic(1-delta) * spec.q * w[i]
-                    rho[r[i]]   += quadratic(delta)   * spec.q * w[i]
-                    rho[rp1]    += quadratic(delta+1) * spec.q * w[i]
+                    rho[l[i]-1] += quadratic_shape_factor(2-delta) * spec.q * w[i]
+                    rho[l[i]]   += quadratic_shape_factor(1-delta) * spec.q * w[i]
+                    rho[r[i]]   += quadratic_shape_factor(delta)   * spec.q * w[i]
+                    rho[rp1]    += quadratic_shape_factor(delta+1) * spec.q * w[i]
                 
         return rho
     
@@ -270,10 +260,10 @@ class simulation:
                 
                 rp1 = (r[i]+1)%self.grid.Nx
 
-                rho[l[i]-1] += quadratic(2-delta) * spec.q * w[i]
-                rho[l[i]]   += quadratic(1-delta) * spec.q * w[i]
-                rho[r[i]]   += quadratic(delta)   * spec.q * w[i]
-                rho[rp1]    += quadratic(delta+1) * spec.q * w[i]
+                rho[l[i]-1] += quadratic_shape_factor(2-delta) * spec.q * w[i]
+                rho[l[i]]   += quadratic_shape_factor(1-delta) * spec.q * w[i]
+                rho[r[i]]   += quadratic_shape_factor(delta)   * spec.q * w[i]
+                rho[rp1]    += quadratic_shape_factor(delta+1) * spec.q * w[i]
 
         return rho
        
