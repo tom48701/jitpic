@@ -16,7 +16,12 @@ def make_directory( dirpath, cwd=os.getcwd() ):
     return
 
 def default_inline_plotting_script( sim, fontsize=8 ):
+        """
+        Plot a figure using information from the current simulation state
         
+        sim      : simulation : the simulation object
+        fontsize : int        : figure fontsize
+        """
         # define shortcuts for the quantities to be used
         x = sim.grid.x
         E = sim.grid.get_field('E') 
@@ -39,7 +44,7 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         ax.plot(x, E[1]/a0, 
             'k', label='$E_y$', lw=1)
 
-        # Ez (second transverse electric field component)
+        # Jx (longitudinal current component)
         ax.plot(x, 50*J[0] - 0.5, 
             'g', label='$J_x$', lw=1)
         

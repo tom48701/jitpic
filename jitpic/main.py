@@ -15,24 +15,40 @@ from .numba_functions import deposit_numba, interpolate_numba, \
 import matplotlib.pyplot as plt 
 #plt.style.use('classic')  # revert to 1.x style
 
+def quadratic(x):
+
+    if x>= -1.5 and x < -0.5:
+        return .5*(x**2+3*x+9/4)
+    elif x >= -0.5 and x < 0.5:
+        return -x**2 + .75
+    elif x >= 0.5 and x < 1.5:
+        return .5*(x**2-3*x+9/4)
+    else:
+        return 0.
+            
 class simulation:
     """
     The main simulation object, containing all the PIC methods, related
     functions and diagnostics.
     """
     def __init__(self, x0, x1, Nx, species=[], diag_period=0, 
-                 inline_plotting_script=default_inline_plotting_script,
+                 plotfunc=default_inline_plotting_script,
                  n_threads=numba.get_num_threads(), seed=0  ):
         """ 
         Initialise the simulation, set up the grid at the same time
         
-        x0          : float  : grid start point
-        x1          : float  : grid end point
-        Nx          : int    : number of cells
-        species     : list   : a list of `species' objects
-        diag_period : int    : number of steps between diagnostic writes
-        n_threads   : int    : number of CPU threads to use
-        seed        : int    : set the RNG seed
+        x0          : float     : grid start point
+        x1          : float     : grid end point
+        Nx          : int       : number of cells
+        species     : list      : a list of `species' objects
+        diag_period : int       : number of steps between diagnostic writes
+        plotfunc    : None/func : function to instruct the simulation what
+                                  figure to write alongside the diagnostics.
+                                  plotfunc should take the simulation object
+                                  as an argument, and return a matplotlib
+                                  figure object.
+        n_threads   : int       : number of CPU threads to use
+        seed        : int       : set the RNG seed
         """
         # set the RNG seed for reproducability
         np.random.seed(seed)
@@ -56,7 +72,7 @@ class simulation:
                 self.append_species(spec)    
         
         self.diag_period = diag_period 
-        self.inline_plotting_script = inline_plotting_script
+        self.inline_plotting_script = plotfunc
         
         self.dt = self.grid.dx
 
@@ -66,6 +82,65 @@ class simulation:
         self.tsdiag = None
         
         return
+
+    def step( self, N=1 ):
+        """
+        advance the simulation, automatically write diagnostics and images
+        
+        N : int : number of steps to perform (optional)
+        """
+        
+        print('\nJitPIC:')
+        print( 'performing %i PIC cycles from from step %i'%(N, self.iter) )
+        print( 'Using %i threads via %s'%(numba.get_num_threads(), numba.threading_layer()) )
+        print( 't = %f, dt = %f'%(self.t, self.dt) )
+        print( 'Nx = %i, Np = %i\n'%( self.grid.Nx, sum([ spec.N for spec in self.species])) )
+
+        t0 = time.time()
+        t1 = t0
+        
+        for i in range(N):
+            
+            if self.iter == 0:
+                # offset p,v,J to -1/2
+                # (backstepping the particles will not advance x)
+                self.apply_fields_to_particles()
+                self.push_particles( backstep=True )
+                self.deposit_current( backstep=True )
+                
+            if self.diag_period > 0 and self.iter%self.diag_period == 0:
+                print('Writing diagnostics at step %i (t = %.1f)'%(self.iter, self.t))
+                print('%.1f (%.1f) seconds elapsed (since last write)\n'%(time.time()-t0, time.time()-t1) )
+
+                t1 = time.time()
+                
+                self.write_diagnostics()
+                
+                if self.inline_plotting_script is not None:
+                    self.plot_result()  
+                
+                if self.tsdiag is not None and self.iter > 0:
+                    self.tsdiag.write_data(self)
+
+            if self.tsdiag is not None:
+                    self.tsdiag.gather_data(self)
+                    
+            #print( 'Now at step %i'%self.iter)
+
+            #E,B,x at i
+            #J,p,v at i-1/2
+            self.apply_fields_to_particles()
+            self.push_particles() # push p,v to +1/2. x to +1
+            self.deposit_current()  # push J to +1/2 
+            self.push_fields() #push E,B to +1
+
+            self.t += self.dt
+            self.iter += 1
+
+        print( 'Finished in %.3f s'%(time.time()-t0))
+        print( 'Now at t = %.3e\n'%self.t)
+  
+        return  
     
     def add_new_species(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None):
         """ 
@@ -81,7 +156,6 @@ class simulation:
         eV    : flaot  : species temperature in electron volts (optional)
         dens  : func   : function describing the density profile, the function
                          takes a single argument which is the grid x-positions
-                         (optional)
         """
         
         new_species = species( name, ppc, n, p0, p1, dens=dens, m=m, q=q, eV=eV )
@@ -102,10 +176,12 @@ class simulation:
         
         return
 
-    def deposit_rho(self):
+    def deposit_rho(self, shape=2):
         """ 
         Deposit the total charge density on the grid.
         For diagnostics only!
+        
+        shape : int     : order of the factor to use 
         
         The deposition is periodic for simplicity, expect small errors 
         near the box edges. Might fix later...
@@ -113,7 +189,6 @@ class simulation:
         
         rho = np.zeros(self.grid.Nx)
 
-        
         for spec in self.species: 
             state = spec.state
             l = spec.l[state]
@@ -121,22 +196,49 @@ class simulation:
             w = spec.w[state]
             x = spec.x[state]
         
-            for i in range(spec.N_alive):
-                delta = x[i]%self.grid.dx/self.grid.dx
-                rho[l[i]] += spec.q * w[i] * (1.-delta)
-                rho[r[i]] += spec.q * w[i] * delta  
+            if shape == 0: # NGP 
+                for i in range(spec.N_alive):
+                    delta = x[i]%self.grid.dx/self.grid.dx
+                    
+                    if  delta < 0.5:
+                        ii = l[i]
+                    else:
+                        ii = r[i]
+                        
+                    rho[ii] += spec.q * w[i]
+                    
+            elif shape==1: # linear 
+                for i in range(spec.N_alive):
+                    delta = x[i]%self.grid.dx/self.grid.dx
+                    
+                    rho[l[i]] += spec.q * w[i] * (1.-delta)
+                    rho[r[i]] += spec.q * w[i] * delta  
+    
+            elif shape == 2: # quadratic 
+                for i in range(spec.N_alive):
+                    delta = x[i]%self.grid.dx/self.grid.dx
+                    
+                    rp1 = (r[i]+1)%self.grid.Nx
+    
+                    rho[l[i]-1] += quadratic(2-delta) * spec.q * w[i]
+                    rho[l[i]]   += quadratic(1-delta) * spec.q * w[i]
+                    rho[r[i]]   += quadratic(delta)   * spec.q * w[i]
+                    rho[rp1]    += quadratic(delta+1) * spec.q * w[i]
                 
         return rho
     
-    def deposit_single_species(self, spec):
+    def deposit_single_species(self, spec, shape=2):
         """ 
         Deposity the charge density for a single species on the grid.
         For diagnostics only!
-
+        
+        spec  : species : the species to deposit
+        shape : int     : order of the factor to use 
+        
         The deposition is periodic for simplicity, expect small errors 
         near the box edges. Might fix later...
-        """
-     
+        """    
+
         rho = np.zeros(self.grid.Nx)
         state = spec.state
         l = spec.l[state]
@@ -144,11 +246,35 @@ class simulation:
         w = spec.w[state]
         x = spec.x[state]
         
-        for i in range(spec.N_alive):
-            delta = x[i]%self.grid.dx/self.grid.dx
-            rho[l[i]] += spec.q * w[i] * (1.-delta)
-            rho[r[i]] += spec.q * w[i] * delta  
-        
+        if shape == 0: # NGP 
+            for i in range(spec.N_alive):
+                delta = x[i]%self.grid.dx/self.grid.dx
+                
+                if  delta < 0.5:
+                    ii = l[i]
+                else:
+                    ii = r[i]
+                    
+                rho[ii] += spec.q * w[i]
+                
+        elif shape==1: # linear 
+            for i in range(spec.N_alive):
+                delta = x[i]%self.grid.dx/self.grid.dx
+                
+                rho[l[i]] += spec.q * w[i] * (1.-delta)
+                rho[r[i]] += spec.q * w[i] * delta  
+
+        elif shape == 2: # quadratic 
+            for i in range(spec.N_alive):
+                delta = x[i]%self.grid.dx/self.grid.dx
+                
+                rp1 = (r[i]+1)%self.grid.Nx
+
+                rho[l[i]-1] += quadratic(2-delta) * spec.q * w[i]
+                rho[l[i]]   += quadratic(1-delta) * spec.q * w[i]
+                rho[r[i]]   += quadratic(delta)   * spec.q * w[i]
+                rho[rp1]    += quadratic(delta+1) * spec.q * w[i]
+
         return rho
        
     def deposit_current(self, backstep=False):
@@ -201,63 +327,6 @@ class simulation:
         J[:,:] = J_3D.sum(axis=0)
         
         return
-    
-    def step( self, N=1 ):
-        """
-        advance the simulation, automatically write diagnostics and images
-        
-        N : int : number of steps to perform (optional)
-        """
-        
-        print('\nJitPIC:')
-        print( 'performing %i PIC cycles from from step %i'%(N, self.iter) )
-        print( 'Using %i threads via %s'%(numba.get_num_threads(), numba.threading_layer()) )
-        print( 't = %f, dt = %f'%(self.t, self.dt) )
-        print( 'Nx = %i, Np = %i\n'%( self.grid.Nx, sum([ spec.N for spec in self.species])) )
-
-        t0 = time.time()
-        t1 = t0
-        
-        for i in range(N):
-            
-            if self.iter == 0:
-                # offset p,v,J to -1/2
-                # (backstepping the particles will not advance x)
-                self.apply_fields_to_particles()
-                self.push_particles( backstep=True )
-                self.deposit_current( backstep=True )
-                
-            if self.diag_period > 0 and self.iter%self.diag_period == 0:
-                print('Writing diagnostics at step %i (t = %.1f)'%(self.iter, self.t))
-                print('%.1f (%.1f) seconds elapsed (since last write)\n'%(time.time()-t0, time.time()-t1) )
-
-                t1 = time.time()
-                
-                self.write_diagnostics()
-                self.plot_result()  
-                
-                if self.tsdiag is not None and self.iter > 0:
-                    self.tsdiag.write_data(self)
-
-            if self.tsdiag is not None:
-                    self.tsdiag.gather_data(self)
-                    
-            #print( 'Now at step %i'%self.iter)
-
-            #E,B,x at i
-            #J,p,v at i-1/2
-            self.apply_fields_to_particles()
-            self.push_particles() # push p,v to +1/2. x to +1
-            self.deposit_current()  # push J to +1/2 
-            self.push_fields() #push E,B to +1
-
-            self.t += self.dt
-            self.iter += 1
-
-        print( 'Finished in %.3f s'%(time.time()-t0))
-        print( 'Now at t = %.3e\n'%self.t)
-  
-        return  
 
     def add_external_field(self, fld, i, mag):
         """
