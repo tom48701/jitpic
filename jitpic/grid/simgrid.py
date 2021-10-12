@@ -26,14 +26,18 @@ class simgrid:
         
         self.x2 = (self.x + self.dx/2.)
         
+        self.rho = np.zeros(self.Nx)
+        
         # E and B have one extra cell on the end for field solving purposes
         self.E = np.zeros((3,self.Nx+1))
         self.B = np.zeros((3,self.Nx+1))
         
         # J has four extra cells to deal with the boundary condition
         self.J = np.zeros((3,self.Nx+4))
-        # also we need a 3D array to avoid a race condition in the
-        # current deposition method
+        
+        # we also need a higher dimensional arrays to avoid a race conditions in the
+        # deposition methods
+        self.rho_2D = np.zeros((n_threads,self.Nx))
         self.J_3D = np.zeros((n_threads,3,self.Nx+4))
         
         # forward index shift for field solving

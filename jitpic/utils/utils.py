@@ -27,7 +27,6 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         E = sim.grid.get_field('E') 
         B = sim.grid.get_field('B')
         J = sim.grid.get_field('J')
-        ne = sim.deposit_single_species( sim.species[0] ) 
         a0 = sim.lasers[0].a0 
         Sx =  E[1]*B[2] - B[1]*E[2] # forward Poynting vector
     
@@ -80,14 +79,3 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         fig.tight_layout()
         
         return fig
-    
-def quadratic_shape_factor(x):
-
-    if x>= -1.5 and x < -0.5:
-        return .5*(x**2+3*x+9/4)
-    elif x >= -0.5 and x < 0.5:
-        return -x**2 + .75
-    elif x >= 0.5 and x < 1.5:
-        return .5*(x**2-3*x+9/4)
-    else:
-        return 0.

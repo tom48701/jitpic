@@ -1,8 +1,7 @@
 import numba, time, h5py, gc
 import numpy as np
 
-from .utils import make_directory, default_inline_plotting_script, \
-                    quadratic_shape_factor
+from .utils import make_directory, default_inline_plotting_script
 from .grid import simgrid
 from .particles import species
 from .laser import laser
@@ -40,7 +39,8 @@ class simulation:
         n_threads   : int       : number of CPU threads to use
         seed        : int       : set the RNG seed
         """
-        # set the RNG seed for reproducability
+        # set the RNG seed for reproducability]
+        self.seed = seed
         np.random.seed(seed)
         
         self.n_threads = n_threads
@@ -166,106 +166,173 @@ class simulation:
         
         return
 
-    def deposit_rho(self, shape=2):
+    def deposit_rho(self):
         """ 
         Deposit the total charge density on the grid.
         For diagnostics only!
-        
-        shape : int     : order of the factor to use 
         
         The deposition is periodic for simplicity, expect small errors 
         near the box edges. Might fix later...
         """
         
-        rho = np.zeros(self.grid.Nx)
-
-        for spec in self.species: 
+        rho = self.grid.rho
+        rho_2D = self.grid.rho_2D
+        
+        rho[:] = 0.
+        rho_2D[:,:] = 0.
+        
+        for spec in self.species:
             state = spec.state
             l = spec.l[state]
             r = spec.r[state]
             w = spec.w[state]
             x = spec.x[state]
+            
+            # calculate the index splits for current deposition - assume masked arrays
+            indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
+            indices = np.array(indices)
+            
+            spec.shapefunc(spec.N_alive, self.n_threads, 
+                                 x, self.grid.dx, spec.q*w, rho_2D, l, r,
+                                 indices, self.grid.x, self.grid.Nx)
+            
+        rho[:] = rho_2D.sum(axis=0)
         
-            if shape == 0: # NGP 
-                for i in range(spec.N_alive):
-                    delta = x[i]%self.grid.dx/self.grid.dx
-                    
-                    if  delta < 0.5:
-                        ii = l[i]
-                    else:
-                        ii = r[i]
-                        
-                    rho[ii] += spec.q * w[i]
-                    
-            elif shape==1: # linear 
-                for i in range(spec.N_alive):
-                    delta = x[i]%self.grid.dx/self.grid.dx
-                    
-                    rho[l[i]] += spec.q * w[i] * (1.-delta)
-                    rho[r[i]] += spec.q * w[i] * delta  
-    
-            elif shape == 2: # quadratic 
-                for i in range(spec.N_alive):
-                    delta = x[i]%self.grid.dx/self.grid.dx
-                    
-                    rp1 = (r[i]+1)%self.grid.Nx
-    
-                    rho[l[i]-1] += quadratic_shape_factor(2-delta) * spec.q * w[i]
-                    rho[l[i]]   += quadratic_shape_factor(1-delta) * spec.q * w[i]
-                    rho[r[i]]   += quadratic_shape_factor(delta)   * spec.q * w[i]
-                    rho[rp1]    += quadratic_shape_factor(delta+1) * spec.q * w[i]
-                
         return rho
-    
-    def deposit_single_species(self, spec, shape=2):
+
+    # def deposit_single_species(self, spec):
+    #     """ 
+    #     Deposity the charge density for a single species on the grid using a
+    #     linear particle shape
+    #     For diagnostics only!
+        
+    #     spec  : species : the species to deposit
+        
+    #     The deposition is periodic for simplicity, expect small errors 
+    #     near the box edges. Might fix later...
+    #     """    
+
+    #     rho = self.grid.rho
+    #     rho_2D = self.grid.rho_2D
+        
+    #     rho[:] = 0.
+    #     rho_2D[:,:] = 0.
+        
+    #     state = spec.state
+    #     l = spec.l[state]
+    #     r = spec.r[state]
+    #     w = spec.w[state]
+    #     x = spec.x[state]
+        
+    #     # calculate the index splits for current deposition - assume masked arrays
+    #     indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
+    #     indices = np.array(indices)
+            
+    #     deposit_charge_numba(spec.N_alive, self.n_threads, 
+    #                          x, self.grid.dx, spec.q*w, rho_2D, l, r,
+    #                          indices, self.grid.x)
+        
+    #     rho[:] = rho_2D.sum(axis=0)
+        
+    #     return rho
+
+    def deposit_single_species(self, spec):
         """ 
         Deposity the charge density for a single species on the grid.
         For diagnostics only!
         
         spec  : species : the species to deposit
-        shape : int     : order of the factor to use 
         
         The deposition is periodic for simplicity, expect small errors 
         near the box edges. Might fix later...
         """    
 
-        rho = np.zeros(self.grid.Nx)
+        rho = self.grid.rho
+        rho_2D = self.grid.rho_2D
+        
+        rho[:] = 0.
+        rho_2D[:,:] = 0.
+        
         state = spec.state
         l = spec.l[state]
         r = spec.r[state]
         w = spec.w[state]
         x = spec.x[state]
         
-        if shape == 0: # NGP 
-            for i in range(spec.N_alive):
-                delta = x[i]%self.grid.dx/self.grid.dx
-                
-                if  delta < 0.5:
-                    ii = l[i]
-                else:
-                    ii = r[i]
-                    
-                rho[ii] += spec.q * w[i]
-                
-        elif shape==1: # linear 
-            for i in range(spec.N_alive):
-                delta = x[i]%self.grid.dx/self.grid.dx
-                
-                rho[l[i]] += spec.q * w[i] * (1.-delta)
-                rho[r[i]] += spec.q * w[i] * delta  
-
-        elif shape == 2: # quadratic 
-            for i in range(spec.N_alive):
-                delta = x[i]%self.grid.dx/self.grid.dx
-                
-                rp1 = (r[i]+1)%self.grid.Nx
-
-                rho[l[i]-1] += quadratic_shape_factor(2-delta) * spec.q * w[i]
-                rho[l[i]]   += quadratic_shape_factor(1-delta) * spec.q * w[i]
-                rho[r[i]]   += quadratic_shape_factor(delta)   * spec.q * w[i]
-                rho[rp1]    += quadratic_shape_factor(delta+1) * spec.q * w[i]
-
+        # calculate the index splits for current deposition - assume masked arrays
+        indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
+        indices = np.array(indices)
+            
+        spec.shapefunc(spec.N_alive, self.n_threads, 
+                             x, self.grid.dx, spec.q*w, rho_2D, l, r,
+                             indices, self.grid.x, self.grid.Nx)
+        
+        rho[:] = rho_2D.sum(axis=0)
+        
         return rho
+    
+    # def deposit_single_species_arbitrary_shape(self, spec):
+    #     """ 
+    #     Deposity the charge density for a single species on the grid.
+    #     For diagnostics only!
+        
+    #     spec  : species : the species to deposit
+        
+    #     The deposition is periodic for simplicity, expect small errors 
+    #     near the box edges. Might fix later...
+    #     """    
+
+    #     rho = np.zeros(self.grid.Nx)
+    #     state = spec.state
+    #     l = spec.l[state]
+    #     r = spec.r[state]
+    #     w = spec.w[state]
+    #     x = spec.x[state]
+        
+    #     Ncell = max(0, spec.shape-1)
+        
+    #     for i in range(spec.N_alive):
+    #         delta = x[i]%self.grid.dx/self.grid.dx
+            
+    #         rho[l[i]-1] += spec.q * w[i] * spec.wshape(1-delta)
+    #         rho[(r[i]+1)%self.grid.Nx] += spec.q * w[i] * spec.wshape(delta)   
+            
+    #         for j in range(Ncell):
+                
+    #             rho[l[i]-j-2] += spec.q * w[i] * spec.wshape(j+2-delta)
+    #             rho[(r[i]+j+2)%self.grid.Nx] += spec.q * w[i] * spec.wshape(delta+1+j)  
+
+    #     return rho
+    
+    # def deposit_single_species(self, spec):
+    #     """ 
+    #     Deposity the charge density for a single species on the grid using a
+    #     linear particle shape
+    #     For diagnostics only!
+        
+    #     spec  : species : the species to deposit
+        
+    #     The deposition is periodic for simplicity, expect small errors 
+    #     near the box edges. Might fix later...
+    #     """    
+
+    #     rho = self.grid.rho
+    #     rho[:,:] = 0.
+        
+    #     state = spec.state
+    #     l = spec.l[state]
+    #     r = spec.r[state]
+    #     w = spec.w[state]
+    #     x = spec.x[state]
+        
+
+    #     for i in range(spec.N_alive):
+    #         delta = x[i]%self.grid.dx/self.grid.dx
+            
+    #         rho[l[i]] += spec.q * w[i] * (1.-delta)
+    #         rho[r[i]] += spec.q * w[i] * delta  
+
+    #     return rho
        
     def deposit_current(self, backstep=False):
         """

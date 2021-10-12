@@ -1,9 +1,14 @@
 import numpy as np
 
+from ..numba_functions import deposit_charge_numba_linear, \
+                              deposit_charge_numba_quadratic, \
+                              deposit_charge_numba_cubic
+
 class species:
     """ Particle Species """
     
-    def __init__(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None ):
+    def __init__(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None,
+                 shape=1):
         """
         name  : str    : species name for diagnostic purposes
         ppc   : int    : number of particles per cell
@@ -35,6 +40,18 @@ class species:
         self.ddx = None # inter-particle half-spacing (set later)
         self.eV = eV
         
+        # set the particle shape FOR CHARGE DEPOSITION ONLY
+        self.shape = shape
+        if shape == 1:
+            self.shapefunc = deposit_charge_numba_linear
+        elif shape == 2:
+            self.shapefunc = deposit_charge_numba_quadratic
+        elif shape == 3:
+            self.shapefunc = deposit_charge_numba_cubic
+        else:
+            raise ValueError('requested particle shape not implemented!')
+        
+        
         # use the default (flat) density profile if none is specified
         if dens is None:
             self.dfunc = default_profile
@@ -62,7 +79,7 @@ class species:
             positions of the first/last particles. Interparticle spacing is
             held constant. Therefore, particles are distributed by working out 
             the first and last particle positions, and hence the total number 
-            of particles. N will be at most (ppc*Nx).
+            of particles N will be at most (ppc*Nx).
             """
 
             i = np.floor(x/dx) # nearest left cell
@@ -78,21 +95,26 @@ class species:
         
         assert (first_particle > grid.x0) and (last_particle < grid.x1), 'Particles initialised outside the grid!'
 
-        self.N = int((self.p1-self.p0) / (2*self.ddx))
+        N = int((self.p1-self.p0) / (2*self.ddx))
+      
+        x = np.zeros(N)
+        x[:] = np.linspace(first_particle, last_particle, N) 
+        
+        # calculate weights then remove any zero-weight particles
+        w = np.full(N, self.n/self.ppc) * self.dfunc(x) 
+    
+        self.w = w[w != 0]
+        self.N = len(self.w)
+        
+        self.x = x[w != 0]
+        self.x_old = np.zeros_like(self.x)
 
         self.E = np.zeros((3,self.N))
         self.B = np.zeros((3,self.N))     
         
         self.state = np.full(self.N, True, dtype=bool)
-        self.N_alive = self.N # all particle should be alive at first
+        self.N_alive = self.N # all particles should be alive at first
         
-        self.x = np.zeros(self.N)
-        self.x[:] = np.linspace(first_particle, last_particle, self.N) 
-        
-        self.x_old = np.zeros_like(self.x)
-        
-        self.w = np.full(self.N, self.n/self.ppc) * self.dfunc(self.x) # weight
-
         Ek = self.eV / 5.11e5 # / electron rest mass energy
         pi = np.sqrt(Ek**2 + 2.*Ek*self.m) / np.sqrt(3) # initial momentum
     

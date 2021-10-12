@@ -1,7 +1,73 @@
 import numba
 import numpy as np
 
+@numba.njit()
+def quadratic_shape_factor(x):
+    if x > 1.5:
+        return 0.
+    elif x > 0.5:
+        return (2*x - 3)**2/8.
+    else:
+        return 0.75 - x**2
+
+@numba.njit() 
+def cubic_shape_factor(x):
+    if x > 2:
+        return 0.
+    elif x > 1:
+        return -(x - 2)**3/6.
+    else:
+        return (3*x**3 - 6*x**2 + 4)/6.
+    
 @numba.njit(parallel=True)
+def deposit_charge_numba_linear(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
+
+    for j in numba.prange(n_threads):
+        for i in range( indices[j], indices[j+1] ):   
+            
+            delta = (x[i] - xg[l[i]])/dx
+                              
+            rho[j,l[i]] += qw[i] * (1.-delta)
+            rho[j,r[i]] += qw[i] * delta  
+            
+    return
+
+@numba.njit(parallel=True)
+def deposit_charge_numba_quadratic(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
+    
+    for j in numba.prange(n_threads):
+        for i in range( indices[j], indices[j+1] ):   
+            
+            delta = (x[i] - xg[l[i]])/dx
+            rp1 = (r[i]+1)%Nx
+            
+            rho[j,l[i]-1] += qw[i] * quadratic_shape_factor(1.+delta)
+            rho[j,l[i]]   += qw[i] * quadratic_shape_factor(   delta)
+            rho[j,r[i]]   += qw[i] * quadratic_shape_factor(1.+delta)  
+            rho[j,rp1]    += qw[i] * quadratic_shape_factor(2.+delta)
+
+    return
+
+@numba.njit(parallel=True)
+def deposit_charge_numba_cubic(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
+    
+    for j in numba.prange(n_threads):
+        for i in range( indices[j], indices[j+1] ):   
+            
+            delta = (x[i] - xg[l[i]])/dx
+            
+            rp1 = (r[i]+1)%Nx
+            rp2 = (r[i]+2)%Nx  
+            
+            rho[j,l[i]-2] += qw[i] * cubic_shape_factor(2.+delta)
+            rho[j,l[i]-1] += qw[i] * cubic_shape_factor(1.+delta)
+            rho[j,l[i]]   += qw[i] * cubic_shape_factor(   delta)
+            rho[j,r[i]]   += qw[i] * cubic_shape_factor(1.-delta)  
+            rho[j,rp1]    += qw[i] * cubic_shape_factor(2.-delta)
+            rho[j,rp2]    += qw[i] * cubic_shape_factor(3.-delta)  
+    return
+      
+@numba.njit(parallel=False)
 def deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx, x2 ):
     """
@@ -32,9 +98,11 @@ def deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             x = xs[j]
             x_old = x_olds[j]
             
-            if abs(x - x_old) == 0.: # no displacement? no current; continue
+            
+            if x == x_old: # no displacement? no current; continue
                 continue
             
+                
             w = ws[j]*q
             vy = vys[j]
             vz = vzs[j]
@@ -46,20 +114,20 @@ def deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             ip0 = i
             ip1 = i+1
             ip2 = i+2
-            
-            xi = xidx[i] 
+
+            xi = xidx[i] # left grid cell position
             
             Jl = 0. 
             Jr = 0.
             Jc = 0.
             
             if x_old >= xi and x_old < x2[i]: # left half of the cell
-                
-                if (x >= x2[i-1]) and (x < x2[i]): #small move left
                     
+                if (x >= x2[i]-1.) and (x < x2[i]): #small move left
+    
                     # x
                     J[k,0,ip0] += w*(x - x_old)
-                    
+
                     # y
                     Jr = 0.5*w*vy*(1.+ x + x_old - 2.*xi)
                     Jl = w*vy - Jr
@@ -72,11 +140,40 @@ def deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                     Jl = w*vz - Jr
                     
                     J[k,2,ip0] += Jr
-                    J[k,2,im1] += Jl
+                    J[k,2,im1] += Jl            
                     
+                elif (x >= x2[i]): # small/large move right
                         
+                    ee =  (x_old - xi - 0.5) / (x_old - x) ###
+    
+                    # x
+                    Jl = w*(0.5 - (x_old - xi))
+                    Jr = w*(x - x_old) - Jl                 
+                        
+                    J[k,0,ip0] += Jl
+                    J[k,0,ip1] += Jr
                     
-                elif (x < x2[i-1]): # large move left
+                    # y
+                    Jl = 0.5*ee*w*vy*(0.5-(x_old-xi))
+                    Jr = 0.5*(1.-ee)*w*vy*(x-xi-0.5)
+                    Jc = w*vy - Jl - Jr
+                    
+                    J[k,1,im1] += Jl
+                    J[k,1,ip0] += Jc
+                    J[k,1,ip1] += Jr
+                    
+                    # z
+                    Jl = 0.5*ee*w*vz*(0.5-(x_old-xi))
+                    Jr = 0.5*(1.-ee)*w*vz*(x-xi-0.5)
+                    Jc = w*vz - Jl - Jr
+                    
+                    J[k,2,im1] += Jl
+                    J[k,2,ip0] += Jc
+                    J[k,2,ip1] += Jr                            
+
+                        
+                else:# (x < x2[i-1]): # large move left
+                        
                     ee = (x_old - xi + 0.5) / (x_old - x) ###
                     
                     # x
@@ -104,46 +201,16 @@ def deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                     J[k,2,im1] += Jc
                     J[k,2,im2] += Jl
                     
-                    
-                elif (x >= x2[i]): # small/large move right
-                    ee =  (x_old - xi - 0.5) / (x_old - x) ###
-    
-                    # x
-                    Jl = w*(0.5 - (x_old - xi))
-                    Jr = w*(x - x_old) - Jl                 
-                    
-                    J[k,0,ip0] += Jl
-                    J[k,0,ip1] += Jr
-                    
-                    # y
-                    Jl = 0.5*ee*w*vy*(0.5-(x_old-xi))
-                    Jr = 0.5*(1.-ee)*w*vy*(x-xi-0.5)
-                    Jc = w*vy - Jl - Jr
-                    
-                    J[k,1,im1] += Jl
-                    J[k,1,ip0] += Jc
-                    J[k,1,ip1] += Jr
-                    
-                    # z
-                    Jl = 0.5*ee*w*vz*(0.5-(x_old-xi))
-                    Jr = 0.5*(1.-ee)*w*vz*(x-xi-0.5)
-                    Jc = w*vz - Jl - Jr
-                    
-                    J[k,2,im1] += Jl
-                    J[k,2,ip0] += Jc
-                    J[k,2,ip1] += Jr                            
-                    
-                    
-                else:
-                    print('particle moving but no current deposited?')
+                # else:
+                #     print('particle moving but no current deposited?')
                         
-            elif x_old >= x2[i] and x_old < xi+1.: #right half of the cell
+            else: #if x_old >= x2[i] and x_old < xi+1.: #right half of the cell
     
                 if (x >= x2[i]) and (x < x2[i] + 1.): #small move right
                     
                     # x
                     J[k,0,ip1] += w*(x - x_old)
-       
+                    
                     # y
                     Jl = 0.5*w*vy*(3. + 2*xi - x_old - x)
                     Jr = w*vy - Jl
@@ -158,35 +225,6 @@ def deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                     J[k,2,ip0] += Jl
                     J[k,2,ip1] += Jr
                     
-                    
-                elif (x >= x2[i] + 1.): # large move right
-                    ee =  (x_old - xi - 1.5) / (x_old - x) 
-                    
-                    # x
-                    Jl = w*(1.5 - (x_old - xi))
-                    Jr = w*(x - x_old) - Jl                
-                       
-                    J[k,0,ip1] += Jl
-                    J[k,0,ip2] += Jr
-                    
-                    # y
-                    Jl = 0.5*ee*w*vy*(1.5 - (x_old - xi))
-                    Jr = 0.5*(1.-ee)*w*vy*(x - xi - 1.5)
-                    Jc = w*vy - Jl - Jr
-                    
-                    J[k,1,ip0] += Jl
-                    J[k,1,ip1] += Jc
-                    J[k,1,ip2] += Jr
-                    
-                    Jl = 0.5*ee*w*vz*(1.5 - (x_old - xi))
-                    Jr = 0.5*(1.-ee)*w*vz*(x - xi - 1.5)
-                    Jc = w*vz - Jl - Jr
-                    
-                    J[k,2,ip0] += Jl
-                    J[k,2,ip1] += Jc
-                    J[k,2,ip2] += Jr
-                    
-                        
                 elif (x < x2[i]): # small/large move left
                     ee =  (x_old - xi - 0.5) / (x_old - x) 
     
@@ -196,7 +234,7 @@ def deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                     
                     J[k,0,ip1] += Jr
                     J[k,0,ip0] += Jl
-                    
+
                     #y
                     Jr = 0.5*ee*w*vy*(x_old - xi - 0.5)
                     Jl = 0.5*(1. - ee)*w*vy*(0.5 - (x - xi))
@@ -215,10 +253,39 @@ def deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                     J[k,2,im1] += Jl
                     J[k,2,ip0] += Jc
                     
+                else:# (x >= x2[i] + 1.): # large move right
+                    ee =  (x_old - xi - 1.5) / (x_old - x) 
+                    
+                    # x
+                    Jl = w*(1.5 - (x_old - xi))
+                    Jr = w*(x - x_old) - Jl                
+                       
+                    J[k,0,ip1] += Jl
+                    J[k,0,ip2] += Jr
+
+                    # y
+                    Jl = 0.5*ee*w*vy*(1.5 - (x_old - xi))
+                    Jr = 0.5*(1.-ee)*w*vy*(x - xi - 1.5)
+                    Jc = w*vy - Jl - Jr
+                    
+                    J[k,1,ip0] += Jl
+                    J[k,1,ip1] += Jc
+                    J[k,1,ip2] += Jr
+                    
+                    Jl = 0.5*ee*w*vz*(1.5 - (x_old - xi))
+                    Jr = 0.5*(1.-ee)*w*vz*(x - xi - 1.5)
+                    Jc = w*vz - Jl - Jr
+                    
+                    J[k,2,ip0] += Jl
+                    J[k,2,ip1] += Jc
+                    J[k,2,ip2] += Jr
+
+                # else: # for debug, can probably remove
+                #     print('particle moving but no current deposited?')   
                 
-                else: # for debug, can probably remove
-                    print('particle moving but no current deposited?')   
-    
+            # else:
+            # print('particle not seated?')
+            
     return
 
 
