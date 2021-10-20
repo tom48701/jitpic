@@ -1,14 +1,9 @@
 import numpy as np
 
-from ..numba_functions import deposit_charge_numba_linear, \
-                              deposit_charge_numba_quadratic, \
-                              deposit_charge_numba_cubic
-
 class species:
     """ Particle Species """
     
-    def __init__(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None,
-                 shape=1):
+    def __init__(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None):
         """
         name  : str    : species name for diagnostic purposes
         ppc   : int    : number of particles per cell
@@ -39,19 +34,7 @@ class species:
         self.p1 = p1 
         self.ddx = None # inter-particle half-spacing (set later)
         self.eV = eV
-        
-        # set the particle shape FOR CHARGE DEPOSITION ONLY
-        self.shape = shape
-        if shape == 1:
-            self.shapefunc = deposit_charge_numba_linear
-        elif shape == 2:
-            self.shapefunc = deposit_charge_numba_quadratic
-        elif shape == 3:
-            self.shapefunc = deposit_charge_numba_cubic
-        else:
-            raise ValueError('requested particle shape not implemented!')
-        
-        
+ 
         # use the default (flat) density profile if none is specified
         if dens is None:
             self.dfunc = default_profile

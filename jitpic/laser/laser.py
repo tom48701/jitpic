@@ -65,14 +65,14 @@ class laser:
             Ey = np.where( x < (self.x0 - self.clip), 0., Ey)
             Ey = np.where( x > (self.x0 + self.clip), 0., Ey)
         
-        E = np.zeros_like(grid.E)
-        B = np.zeros_like(grid.B)
+        E = np.zeros_like(grid.E[:,:-grid.NEB])
+        B = np.zeros_like(grid.B[:,:-grid.NEB])
         
-        E[1,:-1] =  Ex.real
-        E[2,:-1] =  Ey.real
+        E[1,:] =  Ex.real
+        E[2,:] =  Ey.real
         
         # B = (1/k) x (E)
-        B[1,:-1] = -self.d*Ey.real
-        B[2,:-1] =  self.d*Ex.real
+        B[1,:] = -self.d*Ey.real
+        B[2,:] =  self.d*Ex.real
     
         return E, B

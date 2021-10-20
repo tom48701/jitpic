@@ -6,38 +6,46 @@ from .grid import simgrid
 from .particles import species
 from .laser import laser
 from .diagnostics import timeseries_diagnostic
-from .numba_functions import deposit_numba, interpolate_numba, \
-                                boris_numba, reseat_numba
 
-#import matplotlib
-#matplotlib.use('Agg') # use a non-graphical backend
-
+# particle push and reseating functions
+from .numba_functions import boris_numba, reseat_numba
+# current deposition functions
+from .numba_functions import deposit_J_linear_numba, deposit_J_quadratic_numba, \
+                             deposit_J_cubic_numba, deposit_J_quartic_numba
+# field interpolation functions                           
+from .numba_functions import interpolate_linear_numba, interpolate_quadratic_numba, \
+                             interpolate_cubic_numba, interpolate_quartic_numba
+# charge deposition functions                       
+from .numba_functions import deposit_rho_linear_numba, deposit_rho_quadratic_numba, \
+                             deposit_rho_cubic_numba, deposit_rho_quartic_numba
+                                 
 import matplotlib.pyplot as plt 
-#plt.style.use('classic')  # revert to 1.x style
             
 class simulation:
     """
     The main simulation object, containing all the PIC methods, related
     functions and diagnostics.
     """
-    def __init__(self, x0, x1, Nx, species=[], diag_period=0, 
+    def __init__(self, x0, x1, Nx, species=[], 
+                 particle_shape=1, diag_period=0, 
                  plotfunc=default_inline_plotting_script,
                  n_threads=numba.get_num_threads(), seed=0  ):
         """ 
         Initialise the simulation, set up the grid at the same time
         
-        x0          : float     : grid start point
-        x1          : float     : grid end point
-        Nx          : int       : number of cells
-        species     : list      : a list of `species' objects
-        diag_period : int       : number of steps between diagnostic writes
-        plotfunc    : None/func : function to instruct the simulation what
-                                  figure to write alongside the diagnostics.
-                                  plotfunc should take the simulation object
-                                  as an argument, and return a matplotlib
-                                  figure object.
-        n_threads   : int       : number of CPU threads to use
-        seed        : int       : set the RNG seed
+        x0             : float     : grid start point
+        x1             : float     : grid end point
+        Nx             : int       : number of cells
+        species        : list      : a list of `species' objects
+        particle_shape : int       : particle shape factor [1:4]
+        diag_period    : int       : number of steps between diagnostic writes
+        plotfunc       : None/func : function to instruct the simulation what
+                                     figure to write alongside the diagnostics.
+                                     plotfunc should take the simulation object
+                                     as an argument, and return a matplotlib
+                                     figure object.
+        n_threads      : int       : number of CPU threads to use
+        seed           : int       : set the RNG seed
         """
         # set the RNG seed for reproducability]
         self.seed = seed
@@ -49,11 +57,39 @@ class simulation:
         self.t = 0.
         self.iter = 0
         self.lasers = []
-
-        self.grid = simgrid(x0, x1, Nx, self.n_threads)
+        
+        self.particle_shape = particle_shape
+        
+        # choose the deposition/gathering functions based on particle shape
+        # note: current deposition in x is one order lower than in y/z
+        if particle_shape == 1:
+            self.deposit_J_func = deposit_J_linear_numba
+            self.interpolate_func = interpolate_linear_numba
+            self.deposit_rho_func = deposit_rho_linear_numba
+            
+        elif particle_shape == 2:
+            self.deposit_J_func = deposit_J_quadratic_numba
+            self.interpolate_func = interpolate_quadratic_numba
+            self.deposit_rho_func = deposit_rho_quadratic_numba
+            
+        elif particle_shape == 3:
+            self.deposit_J_func = deposit_J_cubic_numba
+            self.interpolate_func = interpolate_cubic_numba
+            self.deposit_rho_func = deposit_rho_cubic_numba
+            
+        elif particle_shape == 4:
+            self.deposit_J_func = deposit_J_quartic_numba
+            self.interpolate_func = interpolate_quartic_numba
+            self.deposit_rho_func = deposit_rho_quartic_numba
+            
+        else:
+            raise ValueError('Particle shape %i not implemented!'%particle_shape)
+            
+        self.grid = simgrid(x0, x1, Nx, self.n_threads, particle_shape=self.particle_shape)
     
         self.species = []
         self.Nspecies = len(species)
+
         
         if self.Nspecies > 0:  
             for i in range(self.Nspecies):
@@ -192,49 +228,13 @@ class simulation:
             indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
             indices = np.array(indices)
             
-            spec.shapefunc(spec.N_alive, self.n_threads, 
+            self.deposit_rho_func(spec.N_alive, self.n_threads, 
                                  x, self.grid.dx, spec.q*w, rho_2D, l, r,
                                  indices, self.grid.x, self.grid.Nx)
             
         rho[:] = rho_2D.sum(axis=0)
         
         return rho
-
-    # def deposit_single_species(self, spec):
-    #     """ 
-    #     Deposity the charge density for a single species on the grid using a
-    #     linear particle shape
-    #     For diagnostics only!
-        
-    #     spec  : species : the species to deposit
-        
-    #     The deposition is periodic for simplicity, expect small errors 
-    #     near the box edges. Might fix later...
-    #     """    
-
-    #     rho = self.grid.rho
-    #     rho_2D = self.grid.rho_2D
-        
-    #     rho[:] = 0.
-    #     rho_2D[:,:] = 0.
-        
-    #     state = spec.state
-    #     l = spec.l[state]
-    #     r = spec.r[state]
-    #     w = spec.w[state]
-    #     x = spec.x[state]
-        
-    #     # calculate the index splits for current deposition - assume masked arrays
-    #     indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
-    #     indices = np.array(indices)
-            
-    #     deposit_charge_numba(spec.N_alive, self.n_threads, 
-    #                          x, self.grid.dx, spec.q*w, rho_2D, l, r,
-    #                          indices, self.grid.x)
-        
-    #     rho[:] = rho_2D.sum(axis=0)
-        
-    #     return rho
 
     def deposit_single_species(self, spec):
         """ 
@@ -263,76 +263,13 @@ class simulation:
         indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
         indices = np.array(indices)
             
-        spec.shapefunc(spec.N_alive, self.n_threads, 
+        self.deposit_rho_func(spec.N_alive, self.n_threads, 
                              x, self.grid.dx, spec.q*w, rho_2D, l, r,
                              indices, self.grid.x, self.grid.Nx)
         
         rho[:] = rho_2D.sum(axis=0)
         
         return rho
-    
-    # def deposit_single_species_arbitrary_shape(self, spec):
-    #     """ 
-    #     Deposity the charge density for a single species on the grid.
-    #     For diagnostics only!
-        
-    #     spec  : species : the species to deposit
-        
-    #     The deposition is periodic for simplicity, expect small errors 
-    #     near the box edges. Might fix later...
-    #     """    
-
-    #     rho = np.zeros(self.grid.Nx)
-    #     state = spec.state
-    #     l = spec.l[state]
-    #     r = spec.r[state]
-    #     w = spec.w[state]
-    #     x = spec.x[state]
-        
-    #     Ncell = max(0, spec.shape-1)
-        
-    #     for i in range(spec.N_alive):
-    #         delta = x[i]%self.grid.dx/self.grid.dx
-            
-    #         rho[l[i]-1] += spec.q * w[i] * spec.wshape(1-delta)
-    #         rho[(r[i]+1)%self.grid.Nx] += spec.q * w[i] * spec.wshape(delta)   
-            
-    #         for j in range(Ncell):
-                
-    #             rho[l[i]-j-2] += spec.q * w[i] * spec.wshape(j+2-delta)
-    #             rho[(r[i]+j+2)%self.grid.Nx] += spec.q * w[i] * spec.wshape(delta+1+j)  
-
-    #     return rho
-    
-    # def deposit_single_species(self, spec):
-    #     """ 
-    #     Deposity the charge density for a single species on the grid using a
-    #     linear particle shape
-    #     For diagnostics only!
-        
-    #     spec  : species : the species to deposit
-        
-    #     The deposition is periodic for simplicity, expect small errors 
-    #     near the box edges. Might fix later...
-    #     """    
-
-    #     rho = self.grid.rho
-    #     rho[:,:] = 0.
-        
-    #     state = spec.state
-    #     l = spec.l[state]
-    #     r = spec.r[state]
-    #     w = spec.w[state]
-    #     x = spec.x[state]
-        
-
-    #     for i in range(spec.N_alive):
-    #         delta = x[i]%self.grid.dx/self.grid.dx
-            
-    #         rho[l[i]] += spec.q * w[i] * (1.-delta)
-    #         rho[r[i]] += spec.q * w[i] * delta  
-
-    #     return rho
        
     def deposit_current(self, backstep=False):
         """
@@ -356,7 +293,6 @@ class simulation:
         
         dx = self.grid.dx
         xidx = self.grid.x / dx
-        x2 = self.grid.x2 / dx
             
         for spec in self.species:
             
@@ -374,13 +310,13 @@ class simulation:
             vzs = spec.v[2][state]
             l_olds = np.floor((x_olds-self.grid.x0/dx)).astype(int)
             
-            deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J_3D,
-                          self.n_threads, indices, spec.q, xidx, x2 )
+            self.deposit_J_func( xs, x_olds, ws, vys, vzs, l_olds, J_3D,
+                          self.n_threads, indices, spec.q, xidx )
 
         if backstep:
             J_3D *= -1.
         
-        # reduce the current onto the grid
+        # reduce the current to 2D
         J[:,:] = J_3D.sum(axis=0)
         
         return
@@ -410,10 +346,11 @@ class simulation:
               
         for spec in self.species:
             
-            interpolate_numba(self.grid.E,self.grid.B,
+            self.interpolate_func(self.grid.E,self.grid.B,
                               spec.E, spec.B,
-                              spec.l, spec.r, spec.x, 
-                              self.grid.x0, self.grid.dx, spec.N)
+                              spec.l, spec.r, 
+                              (spec.x - self.grid.x0)/self.grid.dx,
+                              spec.N)
     
         return 
     
@@ -423,26 +360,26 @@ class simulation:
         (NDFX) field solver, this requires that dx == dt.
         """
         
+        grid = self.grid
+        
         pidt = np.pi*self.dt
         
-        self.grid.E[0,:-1] -= 2. * pidt * self.grid.J[0,:-4]
+        grid.E[0,:-grid.NEB] -= 2. * pidt * grid.J[0,:-grid.NJ]
+             
+        PR = (grid.E[1] + grid.B[2]) * .5
+        PL = (grid.E[1] - grid.B[2]) * .5
+        SR = (grid.E[2] - grid.B[1]) * .5
+        SL = (grid.E[2] + grid.B[1]) * .5
+   
+        PR[grid.f_shift] = PR[:-grid.NEB] - pidt * grid.J[1,:-grid.NJ]
+        PL[:-grid.NEB] = PL[grid.f_shift] - pidt * grid.J[1,:-grid.NJ]
+        SR[grid.f_shift] = SR[:-grid.NEB] - pidt * grid.J[2,:-grid.NJ]
+        SL[:-grid.NEB] = SL[grid.f_shift] - pidt * grid.J[2,:-grid.NJ]
         
-        PR = (self.grid.E[1] + self.grid.B[2]) * .5
-        PL = (self.grid.E[1] - self.grid.B[2]) * .5
-        SR = (self.grid.E[2] - self.grid.B[1]) * .5
-        SL = (self.grid.E[2] + self.grid.B[1]) * .5
-        
-        #shift = np.roll(np.arange(self.grid.Nx), -1)
-        
-        PR[self.grid.f_shift] = PR[:-1] - pidt * self.grid.J[1,:-4]
-        PL[:-1] = PL[self.grid.f_shift] - pidt * self.grid.J[1,:-4]
-        SR[self.grid.f_shift] = SR[:-1] - pidt * self.grid.J[2,:-4]
-        SL[:-1] = SL[self.grid.f_shift] - pidt * self.grid.J[2,:-4]
-        
-        self.grid.E[1] = PR + PL
-        self.grid.B[2] = PR - PL
-        self.grid.E[2] = SL + SR
-        self.grid.B[1] = SL - SR
+        grid.E[1,:-grid.NEB] = PR[:-grid.NEB] + PL[:-grid.NEB]
+        grid.B[2,:-grid.NEB] = PR[:-grid.NEB] - PL[:-grid.NEB]
+        grid.E[2,:-grid.NEB] = SL[:-grid.NEB] + SR[:-grid.NEB]
+        grid.B[1,:-grid.NEB] = SL[:-grid.NEB] - SR[:-grid.NEB]
         
         return  
 
@@ -517,8 +454,8 @@ class simulation:
         
         E_laser, B_laser = new_laser.fields(self.grid)
         
-        self.grid.E += E_laser
-        self.grid.B += B_laser
+        self.grid.E[:,:-self.grid.NEB] += E_laser
+        self.grid.B[:,:-self.grid.NEB] += B_laser
         
         return
     

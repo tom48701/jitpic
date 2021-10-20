@@ -2,25 +2,350 @@ import numba
 import numpy as np
 
 @numba.njit()
-def quadratic_shape_factor(x):
-    if x > 1.5:
-        return 0.
-    elif x > 0.5:
-        return (2*x - 3)**2/8.
+def ngp_shape_factor(x):
+    if x < -0.5:
+        return 0
+    if x < 0.5:
+        return 1
     else:
-        return 0.75 - x**2
+        return 0
+       
+@numba.njit()
+def linear_shape_factor(x):
+    if x < -1:
+        return 0
+    if x < 0:
+        return x+1
+    elif x < 1:
+        return 1-x
+    else:
+        return 0
+    
+@numba.njit()
+def quadratic_shape_factor(x):
+    if x < -1.5:
+        return 0
+    elif x < -0.5:
+        return (x**2+3*x+9/4.)/2.
+    elif x < 0.5:
+        return 0.75-x**2
+    elif x < 1.5:
+        return (x**2-3*x+9/4.)/2.
+    else:
+        return 0
 
 @numba.njit() 
 def cubic_shape_factor(x):
-    if x > 2:
-        return 0.
-    elif x > 1:
-        return -(x - 2)**3/6.
-    else:
-        return (3*x**3 - 6*x**2 + 4)/6.
+    if x < -2:
+        return 0
+    elif x < -1:
+        return (x**3+6*x**2+12*x+8)/6.
+    elif x < 0:
+        return (-3*x**3-6*x**2+4)/6.
+    elif x < 1:
+        return (3*x**3-6*x**2+4)/6.
+    elif x < 2:
+        return (-x**3+6*x**2-12*x+8)/6.
+    else: 
+        return 0
+
+@numba.njit() 
+def quartic_shape_factor(x):
+    if x < -2.5:
+        return 0
+    elif x < -1.5:
+        return (2*x+5)**4/384.
+    elif x < -0.5:
+        return -(16*x**4+80*x**3+120*x**2+20*x-55)/96.
+    elif x < 0.5:
+        return (48*x**4-120*x**2+115)/192.
+    elif x < 1.5:
+        return (-16*x**4+80*x**3-120*x**2+20*x+55)/96.
+    elif x < 2.5:
+        return (2*x-5)**4/384.
+    else: 
+        return 0
+    
+@numba.njit()
+def integrated_ngp_shape_factor(x):    
+    if x < -0.5:
+        return -0.5
+    elif x < 0.5:
+        return x
+    else:# x>1:
+        return 0.5 
+    
+@numba.njit()
+def integrated_linear_shape_factor(x):    
+    if x < -1:
+        return -0.5
+    elif x < 0:
+        return .5*x**2+x
+    elif x < 1:
+        return x-.5*x**2
+    else:# x>1:
+        return 0.5  
+           
+@numba.njit()
+def integrated_quadratic_shape_factor(x):    
+    if x < -1.5:
+        return -0.5
+    elif x < -0.5:
+        return (8*x**3+36*x**2+54*x+3)/48.
+    elif x < 0.5:
+        return 0.75*x-x**3/3.
+    elif x < 1.5:
+        return (8*x**3-36*x**2+54*x-3)/48.
+    else: # x>1.5
+        return 0.5
+    
+@numba.njit()
+def integrated_cubic_shape_factor(x):    
+    if x < -2:
+        return -0.5
+    elif x < -1:
+        return (x**4+8*x**3+24*x**2+32*x+4)/24.
+    elif x < 0:
+        return -x*(3*x**3+8*x**2-16)/24.
+    elif x < 1:
+        return x*(3*x**3-8*x**2+16)/24.
+    elif x < 2:
+        return (-x**4+8*x**3-24*x**2+32*x-4)/24.
+    else: # x > 2
+        return 0.5
+
+@numba.njit(parallel=True)
+def deposit_J_linear_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
+                   n_threads, indices, q, xidx ):
+
+    shape_factor = integrated_ngp_shape_factor  
+    shape_factor_unint = linear_shape_factor
+    
+    for k in numba.prange(n_threads):
+        
+        for j in range( indices[k], indices[k+1] ):   
+            
+            x = xs[j]
+            x_old = x_olds[j]
+            
+            if x == x_old: # no displacement? no current; continue
+                continue
+             
+            w = ws[j]*q
+            vy = vys[j]
+            vz = vzs[j]
+            
+            i = int(l_olds[j]) # l for x_old
+            xi = xidx[i] # left grid cell position
+
+            J[k,0, i-1] -= w*( shape_factor( xi-x-1 ) - shape_factor( xi-x_old-1 ) )
+            J[k,0, i  ] -= w*( shape_factor( xi-x   ) - shape_factor( xi-x_old   ) )
+            J[k,0, i+1] -= w*( shape_factor( xi-x+1 ) - shape_factor( xi-x_old+1 ) )
+            J[k,0, i+2] -= w*( shape_factor( xi-x+2 ) - shape_factor( xi-x_old+2 ) )
+
+            mid = .5*(x+x_old)
+            xi2 = xi + 0.5
+            
+            
+            J[k,1, i-3] += w*vy * shape_factor_unint( xi2-mid-3 )   
+            J[k,1, i-2] += w*vy * shape_factor_unint( xi2-mid-2 )
+            J[k,1, i-1] += w*vy * shape_factor_unint( xi2-mid-1 ) 
+            J[k,1, i  ] += w*vy * shape_factor_unint( xi2-mid   ) 
+            J[k,1, i+1] += w*vy * shape_factor_unint( xi2-mid+1 ) 
+            J[k,1, i+2] += w*vy * shape_factor_unint( xi2-mid+2 )
+            J[k,1, i+3] += w*vy * shape_factor_unint( xi2-mid+3 )
+            
+            J[k,2, i-3] += w*vz * shape_factor_unint( xi2-mid-3 ) 
+            J[k,2, i-2] += w*vz * shape_factor_unint( xi2-mid-2 ) 
+            J[k,2, i-1] += w*vz * shape_factor_unint( xi2-mid-1 ) 
+            J[k,2, i  ] += w*vz * shape_factor_unint( xi2-mid   ) 
+            J[k,2, i+1] += w*vz * shape_factor_unint( xi2-mid+1 ) 
+            J[k,2, i+2] += w*vz * shape_factor_unint( xi2-mid+2 )
+            J[k,2, i+3] += w*vz * shape_factor_unint( xi2-mid+3 )
+    return
+
+@numba.njit(parallel=True)
+def deposit_J_quadratic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
+                   n_threads, indices, q, xidx ):
+
+    shape_factor = integrated_linear_shape_factor  
+    shape_factor_unint = quadratic_shape_factor
+    
+    for k in numba.prange(n_threads):
+        
+        for j in range( indices[k], indices[k+1] ):   
+            
+            x = xs[j]
+            x_old = x_olds[j]
+            
+            if x == x_old: # no displacement? no current; continue
+                continue
+             
+            w = ws[j]*q
+            vy = vys[j]
+            vz = vzs[j]
+            
+            i = int(l_olds[j]) # l for x_old
+            xi = xidx[i] # left grid cell position
+
+            J[k,0, i-1] -= w*( shape_factor( xi-x-1 ) - shape_factor( xi-x_old-1 ) )
+            J[k,0, i  ] -= w*( shape_factor( xi-x   ) - shape_factor( xi-x_old   ) )
+            J[k,0, i+1] -= w*( shape_factor( xi-x+1 ) - shape_factor( xi-x_old+1 ) )
+            J[k,0, i+2] -= w*( shape_factor( xi-x+2 ) - shape_factor( xi-x_old+2 ) )
+
+            mid = .5*(x+x_old)
+            xi2 = xi + 0.5
+            
+            J[k,1, i-4] += w*vy * shape_factor_unint( xi2-mid-4 )
+            J[k,1, i-3] += w*vy * shape_factor_unint( xi2-mid-3 )
+            J[k,1, i-2] += w*vy * shape_factor_unint( xi2-mid-2 )  
+            J[k,1, i-1] += w*vy * shape_factor_unint( xi2-mid-1 ) 
+            J[k,1, i  ] += w*vy * shape_factor_unint( xi2-mid   ) 
+            J[k,1, i+1] += w*vy * shape_factor_unint( xi2-mid+1 ) 
+            J[k,1, i+2] += w*vy * shape_factor_unint( xi2-mid+2 )
+            J[k,1, i+3] += w*vy * shape_factor_unint( xi2-mid+3 )
+            J[k,1, i+4] += w*vy * shape_factor_unint( xi2-mid+4 )
+            
+            J[k,2, i-4] += w*vz * shape_factor_unint( xi2-mid-4 )
+            J[k,2, i-3] += w*vz * shape_factor_unint( xi2-mid-3 )
+            J[k,2, i-2] += w*vz * shape_factor_unint( xi2-mid-2 ) 
+            J[k,2, i-1] += w*vz * shape_factor_unint( xi2-mid-1 ) 
+            J[k,2, i  ] += w*vz * shape_factor_unint( xi2-mid   ) 
+            J[k,2, i+1] += w*vz * shape_factor_unint( xi2-mid+1 ) 
+            J[k,2, i+2] += w*vz * shape_factor_unint( xi2-mid+2 )
+            J[k,2, i+3] += w*vz * shape_factor_unint( xi2-mid+3 )
+            J[k,2, i+4] += w*vz * shape_factor_unint( xi2-mid+4 )
+
+    return
+
+@numba.njit(parallel=True)
+def deposit_J_cubic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
+                   n_threads, indices, q, xidx ):
+
+    shape_factor = integrated_quadratic_shape_factor  
+    shape_factor_unint = cubic_shape_factor
+    
+    for k in numba.prange(n_threads):
+        
+        for j in range( indices[k], indices[k+1] ):   
+            
+            x = xs[j]
+            x_old = x_olds[j]
+            
+            if x == x_old: # no displacement? no current; continue
+                continue
+             
+            w = ws[j]*q
+            vy = vys[j]
+            vz = vzs[j]
+            
+            i = int(l_olds[j]) # l for x_old
+            xi = xidx[i] # left grid cell position
+
+            J[k,0, i-2] -= w*( shape_factor( xi-x-2 ) - shape_factor( xi-x_old-2 ) )
+            J[k,0, i-1] -= w*( shape_factor( xi-x-1 ) - shape_factor( xi-x_old-1 ) )
+            J[k,0, i  ] -= w*( shape_factor( xi-x   ) - shape_factor( xi-x_old   ) )
+            J[k,0, i+1] -= w*( shape_factor( xi-x+1 ) - shape_factor( xi-x_old+1 ) )
+            J[k,0, i+2] -= w*( shape_factor( xi-x+2 ) - shape_factor( xi-x_old+2 ) )
+            J[k,0, i+3] -= w*( shape_factor( xi-x+3 ) - shape_factor( xi-x_old+3 ) )
+
+            mid = .5*(x+x_old)
+            xi2 = xi + 0.5
+            
+            J[k,1, i-5] += w*vy * shape_factor_unint( xi2-mid-5 )
+            J[k,1, i-4] += w*vy * shape_factor_unint( xi2-mid-4 )
+            J[k,1, i-3] += w*vy * shape_factor_unint( xi2-mid-3 )
+            J[k,1, i-2] += w*vy * shape_factor_unint( xi2-mid-2 ) 
+            J[k,1, i-1] += w*vy * shape_factor_unint( xi2-mid-1 ) 
+            J[k,1, i  ] += w*vy * shape_factor_unint( xi2-mid   ) 
+            J[k,1, i+1] += w*vy * shape_factor_unint( xi2-mid+1 ) 
+            J[k,1, i+2] += w*vy * shape_factor_unint( xi2-mid+2 )
+            J[k,1, i+3] += w*vy * shape_factor_unint( xi2-mid+3 )
+            J[k,1, i+4] += w*vy * shape_factor_unint( xi2-mid+4 )
+            J[k,1, i+5] += w*vy * shape_factor_unint( xi2-mid+5 )
+            
+            J[k,2, i-5] += w*vz * shape_factor_unint( xi2-mid-5 )
+            J[k,2, i-4] += w*vz * shape_factor_unint( xi2-mid-4 )
+            J[k,2, i-3] += w*vz * shape_factor_unint( xi2-mid-3 )
+            J[k,2, i-2] += w*vz * shape_factor_unint( xi2-mid-2 ) 
+            J[k,2, i-1] += w*vz * shape_factor_unint( xi2-mid-1 ) 
+            J[k,2, i  ] += w*vz * shape_factor_unint( xi2-mid   ) 
+            J[k,2, i+1] += w*vz * shape_factor_unint( xi2-mid+1 ) 
+            J[k,2, i+2] += w*vz * shape_factor_unint( xi2-mid+2 )
+            J[k,2, i+3] += w*vz * shape_factor_unint( xi2-mid+3 )
+            J[k,2, i+4] += w*vz * shape_factor_unint( xi2-mid+4 )
+            J[k,2, i+5] += w*vz * shape_factor_unint( xi2-mid+5 )
+
+    return
+
+@numba.njit(parallel=True)
+def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
+                   n_threads, indices, q, xidx ):
+
+    shape_factor = integrated_cubic_shape_factor  
+    shape_factor_unint = quartic_shape_factor
+    
+    for k in numba.prange(n_threads):
+        
+        for j in range( indices[k], indices[k+1] ):   
+            
+            x = xs[j]
+            x_old = x_olds[j]
+            
+            
+            if x == x_old: # no displacement? no current; continue
+                continue
+             
+            w = ws[j]*q
+            vy = vys[j]
+            vz = vzs[j]
+            
+            i = int(l_olds[j]) # l for x_old
+            xi = xidx[i] # left grid cell position
+
+            J[k,0, i-3] -= w*( shape_factor( xi-x-3 ) - shape_factor( xi-x_old-3 ) )
+            J[k,0, i-2] -= w*( shape_factor( xi-x-2 ) - shape_factor( xi-x_old-2 ) )
+            J[k,0, i-1] -= w*( shape_factor( xi-x-1 ) - shape_factor( xi-x_old-1 ) )
+            J[k,0, i  ] -= w*( shape_factor( xi-x   ) - shape_factor( xi-x_old   ) )
+            J[k,0, i+1] -= w*( shape_factor( xi-x+1 ) - shape_factor( xi-x_old+1 ) )
+            J[k,0, i+2] -= w*( shape_factor( xi-x+2 ) - shape_factor( xi-x_old+2 ) )
+            J[k,0, i+3] -= w*( shape_factor( xi-x+3 ) - shape_factor( xi-x_old+3 ) )
+            J[k,0, i+4] -= w*( shape_factor( xi-x+4 ) - shape_factor( xi-x_old+4 ) )
+
+            mid = .5*(x+x_old)
+            xi2 = xi + 0.5
+            
+            J[k,1, i-6] += w*vy * shape_factor_unint( xi2-mid-6 )
+            J[k,1, i-5] += w*vy * shape_factor_unint( xi2-mid-5 )
+            J[k,1, i-4] += w*vy * shape_factor_unint( xi2-mid-4 )
+            J[k,1, i-3] += w*vy * shape_factor_unint( xi2-mid-3 )
+            J[k,1, i-2] += w*vy * shape_factor_unint( xi2-mid-2 ) 
+            J[k,1, i-1] += w*vy * shape_factor_unint( xi2-mid-1 ) 
+            J[k,1, i  ] += w*vy * shape_factor_unint( xi2-mid   ) 
+            J[k,1, i+1] += w*vy * shape_factor_unint( xi2-mid+1 ) 
+            J[k,1, i+2] += w*vy * shape_factor_unint( xi2-mid+2 )
+            J[k,1, i+3] += w*vy * shape_factor_unint( xi2-mid+3 )
+            J[k,1, i+4] += w*vy * shape_factor_unint( xi2-mid+4 )
+            J[k,1, i+5] += w*vy * shape_factor_unint( xi2-mid+5 )
+            J[k,1, i+6] += w*vy * shape_factor_unint( xi2-mid+6 )
+            
+            J[k,2, i-6] += w*vz * shape_factor_unint( xi2-mid-6 )            
+            J[k,2, i-5] += w*vz * shape_factor_unint( xi2-mid-5 )
+            J[k,2, i-4] += w*vz * shape_factor_unint( xi2-mid-4 )
+            J[k,2, i-3] += w*vz * shape_factor_unint( xi2-mid-3 )
+            J[k,2, i-2] += w*vz * shape_factor_unint( xi2-mid-2 ) 
+            J[k,2, i-1] += w*vz * shape_factor_unint( xi2-mid-1 ) 
+            J[k,2, i  ] += w*vz * shape_factor_unint( xi2-mid   ) 
+            J[k,2, i+1] += w*vz * shape_factor_unint( xi2-mid+1 ) 
+            J[k,2, i+2] += w*vz * shape_factor_unint( xi2-mid+2 )
+            J[k,2, i+3] += w*vz * shape_factor_unint( xi2-mid+3 )
+            J[k,2, i+4] += w*vz * shape_factor_unint( xi2-mid+4 )
+            J[k,2, i+5] += w*vz * shape_factor_unint( xi2-mid+5 )
+            J[k,2, i+6] += w*vz * shape_factor_unint( xi2-mid+6 )
+    return
     
 @numba.njit(parallel=True)
-def deposit_charge_numba_linear(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
+def deposit_rho_linear_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
 
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
@@ -33,7 +358,7 @@ def deposit_charge_numba_linear(N, n_threads, x, dx, qw, rho, l, r, indices, xg,
     return
 
 @numba.njit(parallel=True)
-def deposit_charge_numba_quadratic(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
+def deposit_rho_quadratic_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
     
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
@@ -43,13 +368,13 @@ def deposit_charge_numba_quadratic(N, n_threads, x, dx, qw, rho, l, r, indices, 
             
             rho[j,l[i]-1] += qw[i] * quadratic_shape_factor(1.+delta)
             rho[j,l[i]]   += qw[i] * quadratic_shape_factor(   delta)
-            rho[j,r[i]]   += qw[i] * quadratic_shape_factor(1.+delta)  
-            rho[j,rp1]    += qw[i] * quadratic_shape_factor(2.+delta)
+            rho[j,r[i]]   += qw[i] * quadratic_shape_factor(1.-delta)  
+            rho[j,rp1]    += qw[i] * quadratic_shape_factor(2.-delta)
 
     return
 
 @numba.njit(parallel=True)
-def deposit_charge_numba_cubic(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
+def deposit_rho_cubic_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
     
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
@@ -66,228 +391,28 @@ def deposit_charge_numba_cubic(N, n_threads, x, dx, qw, rho, l, r, indices, xg, 
             rho[j,rp1]    += qw[i] * cubic_shape_factor(2.-delta)
             rho[j,rp2]    += qw[i] * cubic_shape_factor(3.-delta)  
     return
-      
-@numba.njit(parallel=False)
-def deposit_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
-                   n_threads, indices, q, xidx, x2 ):
-    """
-    current deposition algorithm, set up for numba parallelisation,
-    algorithm sourced from JPIC and parralelisation technique 
-    adapted from FBPIC.
+
+@numba.njit(parallel=True)
+def deposit_rho_quartic_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
     
-    xs        : pre-masked particle positions
-    x_olds    : pre-masked old particle positions
-    ws        : pre-masked particle weights
-    vys       : pre-masked particle y velocities
-    vzs       : pre-masked particle z velocities
-    l_olds    : pre masked old left indices
-    J         : 3D current density array
-    n_threads : number of numba threads
-    indices   : list of start/end indices for chunking
-    q         : particle charge
-    xidx      : normalised grid x positions
-    x2        : normalised grid mid-cell x positions
-    
-    No returns neccessary as arrays are modified in-place.
-    """
-
-    for k in numba.prange(n_threads):
-        
-        for j in range( indices[k], indices[k+1] ):   
+    for j in numba.prange(n_threads):
+        for i in range( indices[j], indices[j+1] ):   
             
-            x = xs[j]
-            x_old = x_olds[j]
+            delta = (x[i] - xg[l[i]])/dx
             
+            rp1 = (r[i]+1)%Nx
+            rp2 = (r[i]+2)%Nx 
+            rp3 = (r[i]+3)%Nx 
             
-            if x == x_old: # no displacement? no current; continue
-                continue
-            
-                
-            w = ws[j]*q
-            vy = vys[j]
-            vz = vzs[j]
-            i = int(l_olds[j]) # l for x_old
-
-            # depending on boundary conditions, these can change
-            im2 = i-2
-            im1 = i-1
-            ip0 = i
-            ip1 = i+1
-            ip2 = i+2
-
-            xi = xidx[i] # left grid cell position
-            
-            Jl = 0. 
-            Jr = 0.
-            Jc = 0.
-            
-            if x_old >= xi and x_old < x2[i]: # left half of the cell
-                    
-                if (x >= x2[i]-1.) and (x < x2[i]): #small move left
-    
-                    # x
-                    J[k,0,ip0] += w*(x - x_old)
-
-                    # y
-                    Jr = 0.5*w*vy*(1.+ x + x_old - 2.*xi)
-                    Jl = w*vy - Jr
-                    
-                    J[k,1,ip0] += Jr
-                    J[k,1,im1] += Jl
-    
-                    # z
-                    Jr = 0.5*w*vz*(1.+ x + x_old - 2.*xi)
-                    Jl = w*vz - Jr
-                    
-                    J[k,2,ip0] += Jr
-                    J[k,2,im1] += Jl            
-                    
-                elif (x >= x2[i]): # small/large move right
-                        
-                    ee =  (x_old - xi - 0.5) / (x_old - x) ###
-    
-                    # x
-                    Jl = w*(0.5 - (x_old - xi))
-                    Jr = w*(x - x_old) - Jl                 
-                        
-                    J[k,0,ip0] += Jl
-                    J[k,0,ip1] += Jr
-                    
-                    # y
-                    Jl = 0.5*ee*w*vy*(0.5-(x_old-xi))
-                    Jr = 0.5*(1.-ee)*w*vy*(x-xi-0.5)
-                    Jc = w*vy - Jl - Jr
-                    
-                    J[k,1,im1] += Jl
-                    J[k,1,ip0] += Jc
-                    J[k,1,ip1] += Jr
-                    
-                    # z
-                    Jl = 0.5*ee*w*vz*(0.5-(x_old-xi))
-                    Jr = 0.5*(1.-ee)*w*vz*(x-xi-0.5)
-                    Jc = w*vz - Jl - Jr
-                    
-                    J[k,2,im1] += Jl
-                    J[k,2,ip0] += Jc
-                    J[k,2,ip1] += Jr                            
-
-                        
-                else:# (x < x2[i-1]): # large move left
-                        
-                    ee = (x_old - xi + 0.5) / (x_old - x) ###
-                    
-                    # x
-                    Jr = w*(-0.5 - (x_old - xi))
-                    Jl = w*(x - x_old) - Jr                     
-                    
-                    J[k,0,ip0] += Jr
-                    J[k,0,im1] += Jl
-                    
-                    # y
-                    Jr = 0.5*ee*w*vy*(0.5 + x_old - xi)
-                    Jl = 0.5*(1. - ee)*w*vy*(-0.5 - (x - xi))
-                    Jc = w*vy + Jr - Jl
-                    
-                    J[k,1,ip0] += Jr
-                    J[k,1,im1] += Jc
-                    J[k,1,im2] += Jl
-                    
-                    # z
-                    Jr = 0.5*ee*w*vz*(0.5 + x_old - xi)
-                    Jl = 0.5*(1. - ee)*w*vz*(-0.5 - (x - xi))
-                    Jc = w*vz + Jr - Jl
-                    
-                    J[k,2,ip0] += Jr
-                    J[k,2,im1] += Jc
-                    J[k,2,im2] += Jl
-                    
-                # else:
-                #     print('particle moving but no current deposited?')
-                        
-            else: #if x_old >= x2[i] and x_old < xi+1.: #right half of the cell
-    
-                if (x >= x2[i]) and (x < x2[i] + 1.): #small move right
-                    
-                    # x
-                    J[k,0,ip1] += w*(x - x_old)
-                    
-                    # y
-                    Jl = 0.5*w*vy*(3. + 2*xi - x_old - x)
-                    Jr = w*vy - Jl
-                    
-                    J[k,1,ip0] += Jl
-                    J[k,1,ip1] += Jr
-                    
-                    # z
-                    Jl = 0.5*w*vz*(3. + 2*xi - x_old - x)
-                    Jr = w*vz - Jl
-                    
-                    J[k,2,ip0] += Jl
-                    J[k,2,ip1] += Jr
-                    
-                elif (x < x2[i]): # small/large move left
-                    ee =  (x_old - xi - 0.5) / (x_old - x) 
-    
-                    # x
-                    Jr = w*(0.5 - (x_old - xi))
-                    Jl = w*(x - x_old) - Jr           
-                    
-                    J[k,0,ip1] += Jr
-                    J[k,0,ip0] += Jl
-
-                    #y
-                    Jr = 0.5*ee*w*vy*(x_old - xi - 0.5)
-                    Jl = 0.5*(1. - ee)*w*vy*(0.5 - (x - xi))
-                    Jc = w*vy - Jr - Jl
-                    
-                    J[k,1,ip1] += Jr
-                    J[k,1,im1] += Jl
-                    J[k,1,ip0] += Jc
-                    
-                    # z
-                    Jr = 0.5*ee*w*vz*(x_old - xi - 0.5)
-                    Jl = 0.5*(1. - ee)*w*vz*(0.5 - (x - xi))
-                    Jc = w*vz - Jr - Jl
-                    
-                    J[k,2,ip1] += Jr
-                    J[k,2,im1] += Jl
-                    J[k,2,ip0] += Jc
-                    
-                else:# (x >= x2[i] + 1.): # large move right
-                    ee =  (x_old - xi - 1.5) / (x_old - x) 
-                    
-                    # x
-                    Jl = w*(1.5 - (x_old - xi))
-                    Jr = w*(x - x_old) - Jl                
-                       
-                    J[k,0,ip1] += Jl
-                    J[k,0,ip2] += Jr
-
-                    # y
-                    Jl = 0.5*ee*w*vy*(1.5 - (x_old - xi))
-                    Jr = 0.5*(1.-ee)*w*vy*(x - xi - 1.5)
-                    Jc = w*vy - Jl - Jr
-                    
-                    J[k,1,ip0] += Jl
-                    J[k,1,ip1] += Jc
-                    J[k,1,ip2] += Jr
-                    
-                    Jl = 0.5*ee*w*vz*(1.5 - (x_old - xi))
-                    Jr = 0.5*(1.-ee)*w*vz*(x - xi - 1.5)
-                    Jc = w*vz - Jl - Jr
-                    
-                    J[k,2,ip0] += Jl
-                    J[k,2,ip1] += Jc
-                    J[k,2,ip2] += Jr
-
-                # else: # for debug, can probably remove
-                #     print('particle moving but no current deposited?')   
-                
-            # else:
-            # print('particle not seated?')
-            
+            rho[j,l[i]-3] += qw[i] * quartic_shape_factor(3.+delta)
+            rho[j,l[i]-2] += qw[i] * quartic_shape_factor(2.+delta)
+            rho[j,l[i]-1] += qw[i] * quartic_shape_factor(1.+delta)
+            rho[j,l[i]]   += qw[i] * quartic_shape_factor(   delta)
+            rho[j,r[i]]   += qw[i] * quartic_shape_factor(1.-delta)  
+            rho[j,rp1]    += qw[i] * quartic_shape_factor(2.-delta)
+            rho[j,rp2]    += qw[i] * quartic_shape_factor(3.-delta)  
+            rho[j,rp3]    += qw[i] * quartic_shape_factor(4.-delta) 
     return
-
 
 @numba.njit(parallel=True)
 def boris_numba( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, backstep=False):
@@ -348,7 +473,6 @@ def boris_numba( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, backstep=False):
          
     return
 
-
 @numba.njit(parallel=True)
 def reseat_numba(N,x,state,l,r,x0,x1,dx,Nx ):
     """
@@ -383,7 +507,7 @@ def reseat_numba(N,x,state,l,r,x0,x1,dx,Nx ):
     return
 
 @numba.njit(parallel=True)
-def interpolate_numba(Eg,Bg, Es,Bs, l,r,x, x0, dx, N):
+def interpolate_linear_numba(Eg,Bg, Es,Bs, l,r, x, N):
     """
     Interpolate fields from the grid onto particles
     
@@ -393,21 +517,130 @@ def interpolate_numba(Eg,Bg, Es,Bs, l,r,x, x0, dx, N):
     Bs : particle B field
     l  : left cell indices
     r  : right cell indices
-    x  : particle positions
-    x0 : grid x0
-    dx : grid dx
+    x  : normalised particle positions
     N  : number of particles
 
     No return neccessary as arrays are modified in-place.
     """
     for i in numba.prange(N):
-        
-        xi = (x[i]-x0)/dx  
-        alpha = l[i] + 1. - xi
-        beta = 1. - alpha
 
-        Es[:,i] = alpha*Eg[:,l[i]] + beta*Eg[:,r[i]]
-        Bs[:,i] = alpha*Bg[:,l[i]] + beta*Bg[:,r[i]]
+        xi = x[i] - l[i]
+
+        Es[:,i] = (1-xi)*Eg[:,l[i]] + xi*Eg[:,r[i]]
+        Bs[:,i] = (1-xi)*Bg[:,l[i]] + xi*Bg[:,r[i]]
         
     return
+
+@numba.njit(parallel=True)
+def interpolate_quadratic_numba(Eg,Bg, Es,Bs, l,r, x, N):
+    """
+    Interpolate fields from the grid onto particles
     
+    Eg : grid E field
+    Eb : grid B field
+    Es : particle E field
+    Bs : particle B field
+    l  : left cell indices
+    r  : right cell indices
+    x  : normalised particle positions
+    N  : number of particles
+
+    No return neccessary as arrays are modified in-place.
+    """
+    shape_factor = quadratic_shape_factor
+    
+    for i in numba.prange(N):
+
+        xi = x[i] - l[i]
+
+        Es[:,i] = Eg[:,l[i]-1]*shape_factor(-xi-1) + \
+                  Eg[:,l[i]  ]*shape_factor(-xi  ) + \
+                  Eg[:,r[i]  ]*shape_factor(-xi+1) + \
+                  Eg[:,r[i]+1]*shape_factor(-xi+2) 
+                  
+        Bs[:,i] = Bg[:,l[i]-1]*shape_factor(-xi-1) + \
+                  Bg[:,l[i]  ]*shape_factor(-xi  ) + \
+                  Bg[:,r[i]  ]*shape_factor(-xi+1) + \
+                  Bg[:,r[i]+1]*shape_factor(-xi+2) 
+
+    return
+
+@numba.njit(parallel=True)
+def interpolate_cubic_numba(Eg,Bg, Es,Bs, l,r, x, N):
+    """
+    Interpolate fields from the grid onto particles
+    
+    Eg : grid E field
+    Eb : grid B field
+    Es : particle E field
+    Bs : particle B field
+    l  : left cell indices
+    r  : right cell indices
+    x  : normalised particle positions
+    N  : number of particles
+
+    No return neccessary as arrays are modified in-place.
+    """
+    shape_factor = cubic_shape_factor
+    
+    for i in numba.prange(N):
+
+        xi = x[i] - l[i]
+
+        Es[:,i] = Eg[:,l[i]-2]*shape_factor(-xi-2) + \
+                  Eg[:,l[i]-1]*shape_factor(-xi-1) + \
+                  Eg[:,l[i]  ]*shape_factor(-xi  ) + \
+                  Eg[:,r[i]  ]*shape_factor(-xi+1) + \
+                  Eg[:,r[i]+1]*shape_factor(-xi+2) + \
+                  Eg[:,r[i]+2]*shape_factor(-xi+3) 
+                  
+        Bs[:,i] = Bg[:,l[i]-2]*shape_factor(-xi-2) + \
+                  Bg[:,l[i]-1]*shape_factor(-xi-1) + \
+                  Bg[:,l[i]  ]*shape_factor(-xi  ) + \
+                  Bg[:,r[i]  ]*shape_factor(-xi+1) + \
+                  Bg[:,r[i]+1]*shape_factor(-xi+2) + \
+                  Bg[:,r[i]+2]*shape_factor(-xi+3) 
+
+    return
+ 
+@numba.njit(parallel=True)
+def interpolate_quartic_numba(Eg,Bg, Es,Bs, l,r, x, N):
+    """
+    Interpolate fields from the grid onto particles
+    
+    Eg : grid E field
+    Eb : grid B field
+    Es : particle E field
+    Bs : particle B field
+    l  : left cell indices
+    r  : right cell indices
+    x  : normalised particle positions
+    N  : number of particles
+
+    No return neccessary as arrays are modified in-place.
+    """
+    shape_factor = quartic_shape_factor
+    
+    for i in numba.prange(N):
+
+        xi = x[i] - l[i]
+
+        Es[:,i] = Eg[:,l[i]-3]*shape_factor(-xi-3) + \
+                  Eg[:,l[i]-2]*shape_factor(-xi-2) + \
+                  Eg[:,l[i]-1]*shape_factor(-xi-1) + \
+                  Eg[:,l[i]  ]*shape_factor(-xi  ) + \
+                  Eg[:,r[i]  ]*shape_factor(-xi+1) + \
+                  Eg[:,r[i]+1]*shape_factor(-xi+2) + \
+                  Eg[:,r[i]+2]*shape_factor(-xi+3) + \
+                  Eg[:,r[i]+3]*shape_factor(-xi+4)
+                  
+        Bs[:,i] = Bg[:,l[i]-3]*shape_factor(-xi-3) + \
+                  Bg[:,l[i]-2]*shape_factor(-xi-2) + \
+                  Bg[:,l[i]-1]*shape_factor(-xi-1) + \
+                  Bg[:,l[i]  ]*shape_factor(-xi  ) + \
+                  Bg[:,r[i]  ]*shape_factor(-xi+1) + \
+                  Bg[:,r[i]+1]*shape_factor(-xi+2) + \
+                  Bg[:,r[i]+2]*shape_factor(-xi+3) + \
+                  Bg[:,r[i]+3]*shape_factor(-xi+4) 
+    return
+   

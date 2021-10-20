@@ -27,7 +27,12 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         E = sim.grid.get_field('E') 
         B = sim.grid.get_field('B')
         J = sim.grid.get_field('J')
-        a0 = sim.lasers[0].a0 
+        
+        try:
+            a0 = sim.lasers[0].a0
+        except IndexError:
+            a0 = 1.
+            
         Sx =  E[1]*B[2] - B[1]*E[2] # forward Poynting vector
     
         fig, ax = plt.subplots(figsize=(6,4)) # initialise the figure
@@ -44,11 +49,11 @@ def default_inline_plotting_script( sim, fontsize=8 ):
             'k', label='$E_y$', lw=1)
 
         # Jx (longitudinal current component)
-        ax.plot(x, 50*J[0] - 0.5, 
+        ax.plot(x, J[0] - 0.5, 
             'g', label='$J_x$', lw=1)
         
         # Ex (longitudinal electric field component)
-        ax.plot(x, 10*E[0] - 1., 
+        ax.plot(x, E[0] - 1., 
             'b', label='$E_x$', lw=1)
 
         # sqrt(Sx) to retrieve the overall laser amplitude

@@ -3,7 +3,7 @@ import numpy as np
 class simgrid:
     """1D simulation grid"""
 
-    def __init__(self, x0, x1, Nx, n_threads):
+    def __init__(self, x0, x1, Nx, n_threads, particle_shape=1):
         """
         Initialise the simulation grid.
         
@@ -28,17 +28,20 @@ class simgrid:
         
         self.rho = np.zeros(self.Nx)
         
-        # E and B have one extra cell on the end for field solving purposes
-        self.E = np.zeros((3,self.Nx+1))
-        self.B = np.zeros((3,self.Nx+1))
+        # E and B require at least one extra cell on the end for field solving
+        # and probably more for interpolation
+        self.NEB = max(1, 2*particle_shape)
+        self.E = np.zeros((3,self.Nx+self.NEB))
+        self.B = np.zeros((3,self.Nx+self.NEB))
         
-        # J has four extra cells to deal with the boundary condition
-        self.J = np.zeros((3,self.Nx+4))
+        # J also requires extra cells for interpolation
+        self.NJ = 2*(particle_shape+1)
+        self.J = np.zeros((3,self.Nx+self.NJ))
         
         # we also need a higher dimensional arrays to avoid a race conditions in the
         # deposition methods
         self.rho_2D = np.zeros((n_threads,self.Nx))
-        self.J_3D = np.zeros((n_threads,3,self.Nx+4))
+        self.J_3D = np.zeros((n_threads,3,self.Nx+self.NJ))
         
         # forward index shift for field solving
         self.f_shift = np.arange(1, Nx+1, dtype=int) 
@@ -52,9 +55,9 @@ class simgrid:
         """
         
         if field == 'J':
-            f = getattr(self, field)[:,:-4]
+            f = getattr(self, field)[:,:-self.NJ]
         elif field in ('E','B'):
-            f = getattr(self, field)[:,:-1]
+            f = getattr(self, field)[:,:-self.NEB]
         else:
             print('unrecognised field')
             return
