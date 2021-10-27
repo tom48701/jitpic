@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 from setuptools import setup, find_packages
+import jitpic
 
 setup(
    name='JitPIC',
-   version='0.0.1',
+   version=jitpic.__version__
    author='Thomas Wilson',
    author_email='t.wilson@strath.ac.uk',
    packages=find_packages('.'),

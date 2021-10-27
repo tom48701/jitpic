@@ -47,9 +47,30 @@ class simgrid:
         self.f_shift = np.arange(1, Nx+1, dtype=int) 
         return
 
+    def move_grid(self):
+        """
+        Move the grid one cell forward in x
+        """
+        dx = self.dx
+        
+        # shift the grid along by one cell
+        self.x0 += dx
+        self.x1 += dx
+        self.x += dx
+        self.x2 += dx
+        
+        # roll the fields forward by one cell, zero the edge cells
+        self.E = np.roll(self.E, -1, axis=1)
+        self.E[:,self.Nx:] = 0.
+        
+        self.B = np.roll(self.B, -1, axis=1)
+        self.B[:,self.Nx:] = 0.
+        
+        return
+  
     def get_field(self, field):
         """
-        Get the specified field without the buffer cells
+        Get the specified field without the edge cells
         
         field : str ('E','B','J') : field to extract 
         """

@@ -1,6 +1,7 @@
 import numba
 import numpy as np
 
+# Piecewise functions for the various particle shapes
 @numba.njit()
 def ngp_shape_factor(x):
     if x < -0.5:
@@ -65,7 +66,9 @@ def quartic_shape_factor(x):
         return (2*x-5)**4/384.
     else: 
         return 0
-    
+
+# integrated shape functions for current deposition
+
 @numba.njit()
 def integrated_ngp_shape_factor(x):    
     if x < -0.5:
@@ -117,7 +120,9 @@ def integrated_cubic_shape_factor(x):
 @numba.njit(parallel=True)
 def deposit_J_linear_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
-
+    """
+    Current deposition for linear particle shapes
+    """
     shape_factor = integrated_ngp_shape_factor  
     shape_factor_unint = linear_shape_factor
     
@@ -167,7 +172,9 @@ def deposit_J_linear_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
 @numba.njit(parallel=True)
 def deposit_J_quadratic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
-
+    """
+    Current deposition for quadratic particle shapes
+    """
     shape_factor = integrated_linear_shape_factor  
     shape_factor_unint = quadratic_shape_factor
     
@@ -221,7 +228,9 @@ def deposit_J_quadratic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
 @numba.njit(parallel=True)
 def deposit_J_cubic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
-
+    """
+    Current deposition for cubic particle shapes
+    """
     shape_factor = integrated_quadratic_shape_factor  
     shape_factor_unint = cubic_shape_factor
     
@@ -281,7 +290,9 @@ def deposit_J_cubic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
 @numba.njit(parallel=True)
 def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
-
+    """
+    Current deposition for quartic particle shapes
+    """
     shape_factor = integrated_cubic_shape_factor  
     shape_factor_unint = quartic_shape_factor
     
@@ -346,12 +357,14 @@ def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
     
 @numba.njit(parallel=True)
 def deposit_rho_linear_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
-
+    """
+    Charge density deposition for linear particle shapes
+    """
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             
             delta = (x[i] - xg[l[i]])/dx
-                              
+
             rho[j,l[i]] += qw[i] * (1.-delta)
             rho[j,r[i]] += qw[i] * delta  
             
@@ -359,7 +372,9 @@ def deposit_rho_linear_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx
 
 @numba.njit(parallel=True)
 def deposit_rho_quadratic_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
-    
+    """
+    Charge density deposition for quadratic particle shapes
+    """ 
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             
@@ -375,7 +390,9 @@ def deposit_rho_quadratic_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg,
 
 @numba.njit(parallel=True)
 def deposit_rho_cubic_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
-    
+    """
+    Charge density deposition for cubic particle shapes
+    """ 
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             
@@ -394,7 +411,9 @@ def deposit_rho_cubic_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx 
 
 @numba.njit(parallel=True)
 def deposit_rho_quartic_numba(N, n_threads, x, dx, qw, rho, l, r, indices, xg, Nx ):
-    
+    """
+    Charge density deposition for quartic particle shapes
+    """ 
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             

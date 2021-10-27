@@ -15,7 +15,7 @@ Nx = np.rint( (x1-x0)*res ).astype(int)   # automatically determine the total mu
 a0 = 1.         # laser amplitude
 p = 1           # laser polarisation (0=linear, 1=left circular, -1=right circular)
 centroid = -15. # laser centroid position
-tau = 5.        # laser duration (see laser class for the exact definition)
+ctau = 5.        # laser duration (see laser class for the exact definition)
 
 n_e = 0.005 # plasma density 
 
@@ -44,7 +44,7 @@ sim = simulation( x0, x1, Nx, species=[elec], diag_period=50*res )
 sim.add_timeseries_diagnostic( cells=[ int((x-x0)*res) for x in [0, 150] ], fields=['E'] )
 
 # add lasers and external fields
-sim.add_laser(a0, p=p, x0=centroid, tau=tau, clip=3*tau )
+sim.add_laser(a0, p=p, x0=centroid, ctau=ctau, clip=3*ctau )
 #sim.add_external_field('B', 1, 0.02)
   
 ##################### Simulation Execution ######################

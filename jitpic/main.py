@@ -29,7 +29,8 @@ class simulation:
     def __init__(self, x0, x1, Nx, species=[], 
                  particle_shape=1, diag_period=0, 
                  plotfunc=default_inline_plotting_script,
-                 n_threads=numba.get_num_threads(), seed=0  ):
+                 n_threads=numba.get_num_threads(), seed=0,
+                 resize_period=100 ):
         """ 
         Initialise the simulation, set up the grid at the same time
         
@@ -37,7 +38,7 @@ class simulation:
         x1             : float     : grid end point
         Nx             : int       : number of cells
         species        : list      : a list of `species' objects
-        particle_shape : int       : particle shape factor [1:4]
+        particle_shape : int       : particle shape factor (higher = smoother)
         diag_period    : int       : number of steps between diagnostic writes
         plotfunc       : None/func : function to instruct the simulation what
                                      figure to write alongside the diagnostics.
@@ -46,6 +47,7 @@ class simulation:
                                      figure object.
         n_threads      : int       : number of CPU threads to use
         seed           : int       : set the RNG seed
+        resize_period  : int       : interval between particle buffer resizing
         """
         # set the RNG seed for reproducability]
         self.seed = seed
@@ -89,13 +91,14 @@ class simulation:
     
         self.species = []
         self.Nspecies = len(species)
-
-        
+            
         if self.Nspecies > 0:  
             for i in range(self.Nspecies):
                 spec = species[i]
 
                 self.append_species(spec)    
+                
+        self.resize_period = resize_period
         
         self.diag_period = diag_period 
         self.inline_plotting_script = plotfunc
@@ -107,13 +110,24 @@ class simulation:
         
         self.tsdiag = None
         
+        self.moving_window = False
+        
         return
 
+    def set_moving_window(self, state):
+        """
+        Activate or deactivate the moving window 
+        
+        state : bool : moving window True/False
+        """
+        self.moving_window = state
+        return
+    
     def step( self, N=1 ):
         """
         advance the simulation, automatically write diagnostics and images
         
-        N : int : number of steps to perform (optional)
+        N : int : number of steps to perform
         """
         
         print('\nJitPIC:')
@@ -139,7 +153,7 @@ class simulation:
                 print('%.1f (%.1f) seconds elapsed (since last write)\n'%(time.time()-t0, time.time()-t1) )
 
                 t1 = time.time()
-                
+                    
                 self.write_diagnostics()
                 
                 if self.inline_plotting_script is not None:
@@ -160,6 +174,21 @@ class simulation:
             self.deposit_current()  # push J to +1/2 
             self.push_fields() #push E,B to +1
 
+            # Deal with the moving window
+            if self.moving_window:
+                self.grid.move_grid()
+                
+                for spec in self.species:
+                    spec.inject_particles(self.grid)
+                    
+            # reseat / mask particles    
+            self.reseat_particles()
+                
+            # Clean up the particles periodically
+            if self.iter%self.resize_period == 0:
+                for spec in self.species:
+                    spec.compact_particle_arrays()
+    
             self.t += self.dt
             self.iter += 1
 
@@ -195,7 +224,7 @@ class simulation:
         Initialise and append a species object to the list of species
         """
     
-        spec.initialise_particles(self.grid, self.n_threads)
+        spec.initialise_particles(self.grid)
         
         self.species.append(spec)
         self.Nspecies = len(self.species)
@@ -412,7 +441,7 @@ class simulation:
             boris_numba( E, B, qmdt2, spec.p, spec.v, spec.x, spec.x_old, 
                         spec.rg, spec.m, dt, spec.N, backstep=backstep)
                 
-        self.reseat_particles()
+        #self.reseat_particles()
                 
         return
 
@@ -430,14 +459,14 @@ class simulation:
             
         return
         
-    def add_laser(self, a0, x0, tau, lambda_0=1., p=0, d=1, theta_pol=0., 
+    def add_laser(self, a0, x0, ctau, lambda_0=1., p=0, d=1, theta_pol=0., 
                   cep=0., clip=None):
         """
         Add a laser to the simulation object.
         
         a0         : float      : normalised amplitude
         x0         : float      : laser centroid
-        tau        : float      : pulse duration (of the form exp((t/R)^2))
+        ctau       : float      : pulse duration 
         lambda_0   : float      : normalised wavelength 
         p (1,0,-1) : int        : polarisation type (LCP, LP, RCP)
         d (1,-1)   : int        : propagation direction forwards/backwards
@@ -447,7 +476,7 @@ class simulation:
                                   set the laser fields to 0
         """
         
-        new_laser = laser(a0, lambda_0=lambda_0, p=p, x0=x0, tau=tau, d=d, 
+        new_laser = laser(a0, lambda_0=lambda_0, p=p, x0=x0, ctau=ctau, d=d, 
                           theta_pol=theta_pol, clip=clip)
         
         self.lasers.append(new_laser)
@@ -476,18 +505,23 @@ class simulation:
             f.attrs['time'] = self.t
             f.attrs['dt'] = self.dt
             
-            f.create_dataset('x', data=self.grid.x)
-            f.create_dataset('Ex', data=self.grid.get_field('E')[0] )
-            f.create_dataset('Ey', data=self.grid.get_field('E')[1] )
-            f.create_dataset('Ez', data=self.grid.get_field('E')[2] )
-            f.create_dataset('Bx', data=self.grid.get_field('B')[0] )
-            f.create_dataset('By', data=self.grid.get_field('B')[1] )
-            f.create_dataset('Bz', data=self.grid.get_field('B')[2] )
-            f.create_dataset('Jx', data=self.grid.get_field('J')[0] )
-            f.create_dataset('Jy', data=self.grid.get_field('J')[1] )
-            f.create_dataset('Jz', data=self.grid.get_field('J')[2] )    
-            f.create_dataset('rho', data=self.deposit_rho())
+            E = self.grid.get_field('E')
+            B = self.grid.get_field('B')
+            J = self.grid.get_field('J')
             
+            f.create_dataset('x', data=self.grid.x)
+            
+            f.create_dataset('Ex', data=E[0] )
+            f.create_dataset('Ey', data=E[1] )
+            f.create_dataset('Ez', data=E[2] )
+            f.create_dataset('Bx', data=B[0] )
+            f.create_dataset('By', data=B[1] )
+            f.create_dataset('Bz', data=B[2] )
+            f.create_dataset('Jx', data=J[0] )
+            f.create_dataset('Jy', data=J[1] )
+            f.create_dataset('Jz', data=J[2] )    
+            
+            f.create_dataset('rho', data=self.deposit_rho())
             for spec in self.species:
                 f.create_dataset(spec.name, data=self.deposit_single_species(spec) )
    

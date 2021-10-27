@@ -4,14 +4,14 @@ class laser:
     """
     Class containing laser information and methods
     """
-    def __init__(self, a0, lambda_0=1., p=0, x0=0., tau=1., d=1, theta_pol=0., cep=0.,
+    def __init__(self, a0, lambda_0=1., p=0, x0=0., ctau=1., d=1, theta_pol=0., cep=0.,
                  clip=None):
         """
         Initialise a laser object
         
         a0         : float      : normalised amplitude
         x0         : float      : laser centroid
-        tau        : float      : pulse duration
+        ctau       : float      : pulse duration
         lambda_0   : float      : normalised wavelength 
         p (1,0,-1) : int        : polarisation type 
         d (1,-1)   : int        : propagation direction 
@@ -25,7 +25,7 @@ class laser:
         self.lambda_0 = lambda_0
         self.p = p
         self.x0 = x0
-        self.tau = tau
+        self.ctau = ctau
         self.d = d
         self.theta_pol = theta_pol
         self.cep = cep
@@ -39,8 +39,8 @@ class laser:
         
         grid : simgrid : parent grid object
         """
-        def a(x, x0, tau):
-            return np.exp(-((x-x0)/tau)**2)
+        def a(x, x0, ctau):
+            return np.exp(-((x-x0)/ctau)**2)
         
         def phase(x):
             k_0 = 2.*np.pi/self.lambda_0
@@ -50,7 +50,7 @@ class laser:
         
         #phase and envelope
         phi = phase( x )
-        psi = a( x, self.x0, self.tau )
+        psi = a( x, self.x0, self.ctau )
         
         # polarisation vectors
         ex = np.cos(self.theta_pol) + 1j*self.p*np.sin(self.theta_pol)

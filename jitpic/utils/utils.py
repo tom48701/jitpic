@@ -23,11 +23,19 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         fontsize : int        : figure fontsize
         """
         # define shortcuts for the quantities to be used
+        
+        # always use the get methods for the grid fields
         x = sim.grid.x
         E = sim.grid.get_field('E') 
         B = sim.grid.get_field('B')
         J = sim.grid.get_field('J')
         
+        # always use the get methods for the particle quantities
+        # xp = sim.species[0].get_position()
+        # gamma = sim.species[0].get_gamma()
+        # etc...
+        
+        # normalise the fields to the laser (if there is one)
         try:
             a0 = sim.lasers[0].a0
         except IndexError:
@@ -69,7 +77,7 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         # calculate the total kinetic energy in the particles
         Ek = 0.
         for spec in sim.species:
-            Ek += ( spec.KE() * sim.grid.dx ).sum() 
+            Ek += ( spec.get_KE() * sim.grid.dx ).sum() 
         
         # show the total energy (should not increase over the simulation) ((much)) 
         ax.text(.1,.9, r'$\mathcal{E}_{\mathrm{EM}}=%.3e $'%Eem, transform=ax.transAxes)
@@ -83,4 +91,5 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         ax.set_xlabel('$x/\lambda_0$', fontsize=fontsize)
         fig.tight_layout()
         
+        # return the figure object to be saved
         return fig
