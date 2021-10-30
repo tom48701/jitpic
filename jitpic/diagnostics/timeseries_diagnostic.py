@@ -17,7 +17,10 @@ class timeseries_diagnostic:
         diagdir     : str         : folder to write output to
         fname       : str         : output file name
         """
-
+        
+        if sim.diag_period == 0:
+            raise ValueError('diag_period must be > 0 to initialise a timeseries diagnostic')
+            
         self.sim = sim
         self.fields = fields
         self.cells = cells

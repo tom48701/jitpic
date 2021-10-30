@@ -23,6 +23,7 @@ class simgrid:
         
         self.x = np.linspace(x0, x1, Nx, endpoint=True)
         self.dx = self.x[1] - self.x[0]
+        self.idx = 1./self.dx
         
         self.x2 = (self.x + self.dx/2.)
         

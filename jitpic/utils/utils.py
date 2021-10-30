@@ -31,7 +31,7 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         J = sim.grid.get_field('J')
         
         # always use the get methods for the particle quantities
-        # xp = sim.species[0].get_position()
+        # xp = sim.species[0].get_x()
         # gamma = sim.species[0].get_gamma()
         # etc...
         

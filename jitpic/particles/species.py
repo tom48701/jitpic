@@ -86,7 +86,7 @@ class species:
             
         self.rg = 1./np.sqrt(1. + (self.p**2).sum(axis=0)/self.m**2)  # reciprocal gamma factor      
         
-        self.v = self.get_velocity()
+        self.v = self.get_v()
         
         # setup array to contain the left and right cell indices
         self.l = np.zeros(self.N, dtype=np.dtype('u4'))
@@ -217,15 +217,14 @@ class species:
         
         self.N = self.N_alive
         self.state = np.full(self.N, True, dtype=bool)
-        
-        #assert self.state.shape[0] == self.N
+
         return
     
-    def get_position(self):
+    def get_x(self):
         """Return only living particle positions"""
         return self.x[self.state]
     
-    def get_momentum(self):
+    def get_p(self):
         """Return only living particle momenta"""
         return self.p[:,self.state]
     
@@ -233,11 +232,11 @@ class species:
         """Return only living particle gamma factors"""
         return 1./self.rg[self.state]
     
-    def get_weight(self):
+    def get_w(self):
         """Return only living particle weights"""
         return self.w[self.state]
     
-    def get_velocity(self):
+    def get_v(self):
         """Return only living particle velocities """
         return self.p[:,self.state] * self.rg[self.state] / self.m 
 

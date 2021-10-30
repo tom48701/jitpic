@@ -18,7 +18,7 @@ from .numba_functions import interpolate_linear_numba, interpolate_quadratic_num
 # charge deposition functions                       
 from .numba_functions import deposit_rho_linear_numba, deposit_rho_quadratic_numba, \
                              deposit_rho_cubic_numba, deposit_rho_quartic_numba
-                                 
+
 import matplotlib.pyplot as plt 
             
 class simulation:
@@ -86,7 +86,7 @@ class simulation:
             
         else:
             raise ValueError('Particle shape %i not implemented!'%particle_shape)
-            
+        
         self.grid = simgrid(x0, x1, Nx, self.n_threads, particle_shape=self.particle_shape)
     
         self.species = []
@@ -258,7 +258,7 @@ class simulation:
             indices = np.array(indices)
             
             self.deposit_rho_func(spec.N_alive, self.n_threads, 
-                                 x, self.grid.dx, spec.q*w, rho_2D, l, r,
+                                 x, self.grid.idx, spec.q*w, rho_2D, l, r,
                                  indices, self.grid.x, self.grid.Nx)
             
         rho[:] = rho_2D.sum(axis=0)
@@ -293,7 +293,7 @@ class simulation:
         indices = np.array(indices)
             
         self.deposit_rho_func(spec.N_alive, self.n_threads, 
-                             x, self.grid.dx, spec.q*w, rho_2D, l, r,
+                             x, self.grid.idx, spec.q*w, rho_2D, l, r,
                              indices, self.grid.x, self.grid.Nx)
         
         rho[:] = rho_2D.sum(axis=0)
@@ -320,8 +320,8 @@ class simulation:
         
         J_3D[:,:,:] = 0.
         
-        dx = self.grid.dx
-        xidx = self.grid.x / dx
+        idx = self.grid.idx
+        xidx = self.grid.x * idx
             
         for spec in self.species:
             
@@ -332,16 +332,16 @@ class simulation:
             indices = np.array(indices)
             
             # mask the arrays so lengths match
-            xs = spec.x[state] / dx
-            x_olds = spec.x_old[state] / dx
+            xs = spec.x[state] * idx
+            x_olds = spec.x_old[state] * idx
             ws = spec.w[state]
             vys = spec.v[1][state]
             vzs = spec.v[2][state]
-            l_olds = np.floor((x_olds-self.grid.x0/dx)).astype(int)
+            l_olds = np.floor((x_olds-self.grid.x0*idx)).astype(int)
             
             self.deposit_J_func( xs, x_olds, ws, vys, vzs, l_olds, J_3D,
                           self.n_threads, indices, spec.q, xidx )
-
+            
         if backstep:
             J_3D *= -1.
         
