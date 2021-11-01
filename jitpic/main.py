@@ -8,7 +8,7 @@ from .laser import laser
 from .diagnostics import timeseries_diagnostic
 
 # particle push and reseating functions
-from .numba_functions import boris_numba, reseat_numba
+from .numba_functions import boris_numba, cohen_numba, reseat_numba
 # current deposition functions
 from .numba_functions import deposit_J_linear_numba, deposit_J_quadratic_numba, \
                              deposit_J_cubic_numba, deposit_J_quartic_numba
@@ -432,7 +432,8 @@ class simulation:
             
         for spec in self.species:
 
-            qmdt2 = np.pi * spec.qm * dt
+            qmdt2 = 3.141592653589793 * spec.qm * dt
+            #qmdt2 = 6.283185307179586 * spec.qm * dt
             
             # apply external fields
             E = spec.E + self.E_ext
@@ -440,9 +441,10 @@ class simulation:
             
             boris_numba( E, B, qmdt2, spec.p, spec.v, spec.x, spec.x_old, 
                         spec.rg, spec.m, dt, spec.N, backstep=backstep)
-                
-        #self.reseat_particles()
-                
+            
+            # cohen_numba( E, B, qmdt2, spec.p, spec.v, spec.x, spec.x_old, 
+            #             spec.rg, spec.m, dt, spec.N, backstep=backstep)  
+                      
         return
 
     def reseat_particles(self):

@@ -392,7 +392,7 @@ def deposit_J_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
 
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)",  parallel=True)
 def cohen_numba( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, backstep=False):
     """
     Cohen particle push
@@ -422,7 +422,7 @@ def cohen_numba( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, backstep=False):
         a[1] = p[1,i] + qmdt*E[1,i] +  0.5*qmdt*rg[i]*(p[2,i]*B[0] - p[0,i]*B[2])
         a[2] = p[2,i] + qmdt*E[2,i] +  0.5*qmdt*rg[i]*(p[0,i]*B[1] - p[1,i]*B[0])
         
-        b = 0.5*qmdt*B[i,:]
+        b = 0.5*qmdt*B[:,i]
         
         a2 = a[0]**2 + a[1]**2 + a[2]**2
         b2 = b[0]**2 + b[1]**2 + b[2]**2

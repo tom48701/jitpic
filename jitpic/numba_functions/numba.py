@@ -2,6 +2,8 @@ import numba
 import numpy as np
 
 # Piecewise functions for the various particle shapes
+# 0th and 1st order shapes are simple enough that they are faster to implement using intrinsic functions
+
 # assume positive values only    
 @numba.njit("f8(f8)")
 def quadratic_shape_factor(x):
@@ -217,6 +219,7 @@ def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
     """
     Current deposition for quartic particle shapes
     """
+    
     shape_factor = integrated_cubic_shape_factor
     shape_factor_unint = quartic_shape_factor
     
@@ -251,6 +254,7 @@ def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             
             # shape factors expect a positive value, dx can be slightly negative (> -1)
             # when calculating for a cell centre, so abs the central values
+            
             J[k,1, i-3] += w*vy * shape_factor_unint( 3-dx )
             J[k,1, i-2] += w*vy * shape_factor_unint( 2-dx ) 
             J[k,1, i-1] += w*vy * shape_factor_unint( 1-dx ) 
@@ -350,6 +354,65 @@ def deposit_rho_quartic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, 
             if r[i] < Nx-3:
                 rho[j,r[i]+2]    += qw[i] * quartic_shape_factor(3-xi)  
                 
+    return
+
+@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)",  parallel=True)
+def cohen_numba( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, backstep=False):
+    """
+    Cohen particle push
+    
+    E        : particle E-fields
+    B        : particle B-fields
+    qmdt     : constant factor
+    p        : particle momenta
+    v        : particle velocities
+    x        : particle positions
+    x_old    : previous particle position
+    rg       : particle reciprocal gammas
+    m        : particle mass
+    dt       : timestep
+    N        : number of particles
+    backstep : wether or not to push x as well as p,v (for initial setup)
+    
+    No returns neccessary as arrays are modified in-place.
+    """
+
+    for i in numba.prange(N):
+
+        a = np.empty(3) # must be assigned within the loop to be private
+        
+        b = 0.5*qmdt*B[:,i]
+        
+        #a = p0 + q*E + q/2*p/gamma x B
+        a[0] = p[0,i] + qmdt*E[0,i] +  rg[i]*(p[1,i]*b[2] - p[2,i]*b[1])
+        a[1] = p[1,i] + qmdt*E[1,i] +  rg[i]*(p[2,i]*b[0] - p[0,i]*b[2])
+        a[2] = p[2,i] + qmdt*E[2,i] +  rg[i]*(p[0,i]*b[1] - p[1,i]*b[0])
+        
+        a2 = a[0]**2 + a[1]**2 + a[2]**2
+        b2 = b[0]**2 + b[1]**2 + b[2]**2
+        
+        a2b2 = 0.5*(1. + a2 - b2)
+        adotb = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] 
+        
+        gamma2 = a2b2 + np.sqrt( a2b2**2 + b2 + adotb**2 ) 
+        gamma = np.sqrt(gamma2)
+        
+        p[0,i] = ( gamma2*a[0] + gamma*(a[1]*b[2] - a[2]*b[1]) + b[0]*adotb ) / (gamma2 + b2)
+        p[1,i] = ( gamma2*a[1] + gamma*(a[2]*b[0] - a[0]*b[2]) + b[1]*adotb ) / (gamma2 + b2)
+        p[2,i] = ( gamma2*a[2] + gamma*(a[0]*b[1] - a[1]*b[0]) + b[2]*adotb ) / (gamma2 + b2)
+        
+        rg[i] = 1./gamma
+        
+        # make a note of the old positions
+        x_old[i] = x[i]
+        
+        # update v
+        v[:,i] = p[:,i] * rg[i] / m
+        
+        if not backstep:
+            # update x
+            x[i] = x[i] + v[0,i] * dt
+         
     return
 
 @numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)", parallel=True)
