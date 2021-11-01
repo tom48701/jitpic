@@ -2,132 +2,75 @@ import numba
 import numpy as np
 
 # Piecewise functions for the various particle shapes
-@numba.njit()
-def ngp_shape_factor(x):
-    if x < -0.5:
-        return 0
-    if x < 0.5:
-        return 1
-    else:
-        return 0
-       
-@numba.njit()
-def linear_shape_factor(x):
-    if x < -1:
-        return 0
-    if x < 0:
-        return x+1
-    elif x < 1:
-        return 1-x
-    else:
-        return 0
-    
-@numba.njit()
+# assume positive values only    
+@numba.njit("f8(f8)")
 def quadratic_shape_factor(x):
-    if x < -1.5:
-        return 0
-    elif x < -0.5:
-        return (x**2+3*x+9/4.)/2.
-    elif x < 0.5:
+    if x < 0.5:
         return 0.75-x**2
     elif x < 1.5:
-        return (x**2-3*x+9/4.)/2.
+        return (x**2-3*x+2.25) * 0.5
     else:
         return 0
 
-@numba.njit() 
+@numba.njit("f8(f8)") 
 def cubic_shape_factor(x):
-    if x < -2:
-        return 0
-    elif x < -1:
-        return (x**3+6*x**2+12*x+8)/6.
-    elif x < 0:
-        return (-3*x**3-6*x**2+4)/6.
-    elif x < 1:
-        return (3*x**3-6*x**2+4)/6.
+    if x < 1:
+        return (3*x**3-6*x**2+4) * 0.16666666666666666
     elif x < 2:
-        return (-x**3+6*x**2-12*x+8)/6.
+        return (-x**3+6*x**2-12*x+8) * 0.16666666666666666
     else: 
         return 0
 
-@numba.njit() 
+@numba.njit("f8(f8)") 
 def quartic_shape_factor(x):
-    if x < -2.5:
-        return 0
-    elif x < -1.5:
-        return (2*x+5)**4/384.
-    elif x < -0.5:
-        return -(16*x**4+80*x**3+120*x**2+20*x-55)/96.
-    elif x < 0.5:
-        return (48*x**4-120*x**2+115)/192.
+    if x < 0.5:
+        return (48*x**4-120*x**2+115) * 0.005208333333333333
     elif x < 1.5:
-        return (-16*x**4+80*x**3-120*x**2+20*x+55)/96.
+        return (-16*x**4+80*x**3-120*x**2+20*x+55)* 0.010416666666666666
     elif x < 2.5:
-        return (2*x-5)**4/384.
+        return (2*x-5)**4 * 0.0026041666666666665
     else: 
         return 0
-
+    
 # integrated shape functions for current deposition
-
-@numba.njit()
-def integrated_ngp_shape_factor(x):    
-    if x < -0.5:
-        return -0.5
-    elif x < 0.5:
-        return x
+@numba.njit("f8(f8)")
+def integrated_linear_shape_factor(x):
+    sgn = np.sign(x)
+    x = abs(x)    
+    if x < 1:
+        return sgn * (x-0.5*x**2)
     else:# x>1:
-        return 0.5 
-    
-@numba.njit()
-def integrated_linear_shape_factor(x):    
-    if x < -1:
-        return -0.5
-    elif x < 0:
-        return .5*x**2+x
-    elif x < 1:
-        return x-.5*x**2
-    else:# x>1:
-        return 0.5  
-           
-@numba.njit()
-def integrated_quadratic_shape_factor(x):    
-    if x < -1.5:
-        return -0.5
-    elif x < -0.5:
-        return (8*x**3+36*x**2+54*x+3)/48.
-    elif x < 0.5:
-        return 0.75*x-x**3/3.
+        return sgn * 0.5 
+     
+@numba.njit("f8(f8)")
+def integrated_quadratic_shape_factor(x):  
+    sgn = np.sign(x)
+    x = abs(x)
+    if x < 0.5:
+        return sgn * (0.75*x-x**3 * 0.3333333333333333)
     elif x < 1.5:
-        return (8*x**3-36*x**2+54*x-3)/48.
+        return sgn * (8*x**3-36*x**2+54*x-3) * 0.020833333333333332
     else: # x>1.5
-        return 0.5
-    
-@numba.njit()
-def integrated_cubic_shape_factor(x):    
-    if x < -2:
-        return -0.5
-    elif x < -1:
-        return (x**4+8*x**3+24*x**2+32*x+4)/24.
-    elif x < 0:
-        return -x*(3*x**3+8*x**2-16)/24.
-    elif x < 1:
-        return x*(3*x**3-8*x**2+16)/24.
-    elif x < 2:
-        return (-x**4+8*x**3-24*x**2+32*x-4)/24.
-    else: # x > 2
-        return 0.5
+        return sgn * 0.5
 
-@numba.njit(parallel=True)
+@numba.njit("f8(f8)")
+def integrated_cubic_shape_factor(x):    
+    sgn = np.sign(x)
+    x = abs(x)
+    if x < 1:
+        return sgn * x*(3*x**3-8*x**2+16) * 0.041666666666666664
+    elif x < 2:
+        return sgn * (-x**4+8*x**3-24*x**2+32*x-4) * 0.041666666666666664
+    else: # x > 2
+        return sgn * 0.5
+    
+@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", parallel=True)
 def deposit_J_linear_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
     Current deposition for linear particle shapes
     """
-    shape_factor = integrated_ngp_shape_factor  
-    shape_factor_unint = linear_shape_factor
-
     for k in numba.prange(n_threads):
-        
         for j in range( indices[k], indices[k+1] ):   
             
             x = xs[j]
@@ -145,26 +88,25 @@ def deposit_J_linear_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
 
             dx1 = xi - x
             dx0 = xi - x_old
-
-            J[k,0, i-1] += w*( shape_factor( dx0-1 ) - shape_factor( dx1-1 ) )
-            J[k,0, i  ] += w*( shape_factor( dx0   ) - shape_factor( dx1   ) )
-            J[k,0, i+1] += w*( shape_factor( dx0+1 ) - shape_factor( dx1+1 ) )
-            J[k,0, i+2] += w*( shape_factor( dx0+2 ) - shape_factor( dx1+2 ) )
+            
+            J[k,0, i-1] += w*( min(max( dx0-1, -0.5), 0.5) - min(max( dx1-1, -0.5), 0.5) )
+            J[k,0, i  ] += w*( min(max( dx0  , -0.5), 0.5) - min(max( dx1  , -0.5), 0.5) )
+            J[k,0, i+1] += w*( min(max( dx0+1, -0.5), 0.5) - min(max( dx1+1, -0.5), 0.5) )
+            J[k,0, i+2] += w*( min(max( dx0+2, -0.5), 0.5) - min(max( dx1+2, -0.5), 0.5) )
             
             dx = xi + 0.5 - .5*(x+x_old) 
+            
+            J[k,1, i-1] += w*vy * max( 0, dx ) 
+            J[k,1, i  ] += w*vy * max( 0, 1-abs(dx)   ) 
+            J[k,1, i+1] += w*vy * max( 0, -dx ) 
 
-            J[k,1, i-1] += w*vy * shape_factor_unint( dx-1 ) 
-            J[k,1, i  ] += w*vy * shape_factor_unint( dx   ) 
-            J[k,1, i+1] += w*vy * shape_factor_unint( dx+1 ) 
-
-            J[k,2, i-1] += w*vz * shape_factor_unint( dx-1 ) 
-            J[k,2, i  ] += w*vz * shape_factor_unint( dx   ) 
-            J[k,2, i+1] += w*vz * shape_factor_unint( dx+1 ) 
+            J[k,2, i-1] += w*vz * max( 0, dx ) 
+            J[k,2, i  ] += w*vz * max( 0, 1-abs(dx)   ) 
+            J[k,2, i+1] += w*vz * max( 0, -dx ) 
 
     return
 
-
-@numba.njit(parallel=True)
+@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", parallel=True)
 def deposit_J_quadratic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
@@ -200,20 +142,22 @@ def deposit_J_quadratic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             
             dx = xi + 0.5 - .5*(x+x_old) 
             
-            J[k,1, i-2] += w*vy * shape_factor_unint( dx-2 ) 
-            J[k,1, i-1] += w*vy * shape_factor_unint( dx-1 ) 
-            J[k,1, i  ] += w*vy * shape_factor_unint( dx   ) 
-            J[k,1, i+1] += w*vy * shape_factor_unint( dx+1 ) 
-            J[k,1, i+2] += w*vy * shape_factor_unint( dx+2 ) 
-            
-            J[k,2, i-2] += w*vz * shape_factor_unint( dx-2 ) 
-            J[k,2, i-1] += w*vz * shape_factor_unint( dx-1 ) 
-            J[k,2, i  ] += w*vz * shape_factor_unint( dx   ) 
-            J[k,2, i+1] += w*vz * shape_factor_unint( dx+1 ) 
-            J[k,2, i+2] += w*vz * shape_factor_unint( dx+2 ) 
+            # shape factors expect a positive value, dx can be slightly negative (> -1)
+            # when calculating for a cell centre, so abs the central values
+            J[k,1, i-2] += w*vy * shape_factor_unint( 2-dx ) 
+            J[k,1, i-1] += w*vy * shape_factor_unint( 1-dx ) 
+            J[k,1, i  ] += w*vy * shape_factor_unint(abs(dx)) 
+            J[k,1, i+1] += w*vy * shape_factor_unint( 1+dx ) 
+            J[k,1, i+2] += w*vy * shape_factor_unint( 2+dx ) 
+
+            J[k,2, i-2] += w*vz * shape_factor_unint( 2-dx ) 
+            J[k,2, i-1] += w*vz * shape_factor_unint( 1-dx ) 
+            J[k,2, i  ] += w*vz * shape_factor_unint(abs(dx)) 
+            J[k,2, i+1] += w*vz * shape_factor_unint( 1+dx ) 
+            J[k,2, i+2] += w*vz * shape_factor_unint( 2+dx )
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", parallel=True)
 def deposit_J_cubic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
@@ -251,27 +195,29 @@ def deposit_J_cubic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             
             dx = xi + 0.5 - .5*(x+x_old) 
             
-            J[k,1, i-2] += w*vy * shape_factor_unint( dx-2 ) 
-            J[k,1, i-1] += w*vy * shape_factor_unint( dx-1 ) 
-            J[k,1, i  ] += w*vy * shape_factor_unint( dx   ) 
-            J[k,1, i+1] += w*vy * shape_factor_unint( dx+1 ) 
-            J[k,1, i+2] += w*vy * shape_factor_unint( dx+2 ) 
-            
-            J[k,2, i-2] += w*vz * shape_factor_unint( dx-2 ) 
-            J[k,2, i-1] += w*vz * shape_factor_unint( dx-1 ) 
-            J[k,2, i  ] += w*vz * shape_factor_unint( dx   ) 
-            J[k,2, i+1] += w*vz * shape_factor_unint( dx+1 ) 
-            J[k,2, i+2] += w*vz * shape_factor_unint( dx+2 ) 
+            # shape factors expect a positive value, dx can be slightly negative (> -1)
+            # when calculating for a cell centre, so abs the central values
+            J[k,1, i-2] += w*vy * shape_factor_unint( 2-dx ) 
+            J[k,1, i-1] += w*vy * shape_factor_unint( 1-dx ) 
+            J[k,1, i  ] += w*vy * shape_factor_unint(abs(dx)) 
+            J[k,1, i+1] += w*vy * shape_factor_unint( 1+dx ) 
+            J[k,1, i+2] += w*vy * shape_factor_unint( 2+dx ) 
+
+            J[k,2, i-2] += w*vz * shape_factor_unint( 2-dx ) 
+            J[k,2, i-1] += w*vz * shape_factor_unint( 1-dx ) 
+            J[k,2, i  ] += w*vz * shape_factor_unint(abs(dx)) 
+            J[k,2, i+1] += w*vz * shape_factor_unint( 1+dx ) 
+            J[k,2, i+2] += w*vz * shape_factor_unint( 2+dx )
 
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", parallel=True)
 def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
     Current deposition for quartic particle shapes
     """
-    shape_factor = integrated_cubic_shape_factor  
+    shape_factor = integrated_cubic_shape_factor
     shape_factor_unint = quartic_shape_factor
     
     for k in numba.prange(n_threads):
@@ -288,7 +234,7 @@ def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             vy = vys[j]
             vz = vzs[j]
             
-            i = int(l_olds[j]) # l for x_old
+            i = l_olds[j] # l for x_old
             xi = xidx[i] # left grid cell position
 
             dx1 = xi - x
@@ -303,25 +249,27 @@ def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             
             dx = xi + 0.5 - .5*(x+x_old) 
             
-            J[k,1, i-3] += w*vy * shape_factor_unint( dx-3 )
-            J[k,1, i-2] += w*vy * shape_factor_unint( dx-2 ) 
-            J[k,1, i-1] += w*vy * shape_factor_unint( dx-1 ) 
-            J[k,1, i  ] += w*vy * shape_factor_unint( dx   ) 
-            J[k,1, i+1] += w*vy * shape_factor_unint( dx+1 ) 
-            J[k,1, i+2] += w*vy * shape_factor_unint( dx+2 )
-            J[k,1, i+3] += w*vy * shape_factor_unint( dx+3 )
+            # shape factors expect a positive value, dx can be slightly negative (> -1)
+            # when calculating for a cell centre, so abs the central values
+            J[k,1, i-3] += w*vy * shape_factor_unint( 3-dx )
+            J[k,1, i-2] += w*vy * shape_factor_unint( 2-dx ) 
+            J[k,1, i-1] += w*vy * shape_factor_unint( 1-dx ) 
+            J[k,1, i  ] += w*vy * shape_factor_unint(abs(dx)) 
+            J[k,1, i+1] += w*vy * shape_factor_unint( 1+dx ) 
+            J[k,1, i+2] += w*vy * shape_factor_unint( 2+dx ) 
+            J[k,1, i+3] += w*vy * shape_factor_unint( 3+dx )
 
-            J[k,2, i-3] += w*vz * shape_factor_unint( dx-3 )
-            J[k,2, i-2] += w*vz * shape_factor_unint( dx-2 ) 
-            J[k,2, i-1] += w*vz * shape_factor_unint( dx-1 ) 
-            J[k,2, i  ] += w*vz * shape_factor_unint( dx   ) 
-            J[k,2, i+1] += w*vz * shape_factor_unint( dx+1 ) 
-            J[k,2, i+2] += w*vz * shape_factor_unint( dx+2 ) 
-            J[k,2, i+3] += w*vz * shape_factor_unint( dx+3 )
+            J[k,2, i-3] += w*vz * shape_factor_unint( 3-dx )
+            J[k,2, i-2] += w*vz * shape_factor_unint( 2-dx ) 
+            J[k,2, i-1] += w*vz * shape_factor_unint( 1-dx ) 
+            J[k,2, i  ] += w*vz * shape_factor_unint(abs(dx)) 
+            J[k,2, i+1] += w*vz * shape_factor_unint( 1+dx ) 
+            J[k,2, i+2] += w*vz * shape_factor_unint( 2+dx )
+            J[k,2, i+3] += w*vz * shape_factor_unint( 3+dx )
 
     return
     
-@numba.njit(parallel=True)
+@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", parallel=True)
 def deposit_rho_linear_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx ):
     """
     Charge density deposition for linear particle shapes
@@ -336,7 +284,7 @@ def deposit_rho_linear_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, N
             
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", parallel=True)
 def deposit_rho_quadratic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx ):
     """
     Charge density deposition for quadratic particle shapes
@@ -344,20 +292,20 @@ def deposit_rho_quadratic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             
-            xi = (xg[l[i]] - x[i])*idx
+            xi = (x[i] - xg[l[i]])*idx
             
             if l[i] > 0:
-                rho[j,l[i]-1] += qw[i] * quadratic_shape_factor(xi-1)
+                rho[j,l[i]-1] += qw[i] * quadratic_shape_factor(1+xi)
                 
             rho[j,l[i]]   += qw[i] * quadratic_shape_factor(xi  )
-            rho[j,r[i]]   += qw[i] * quadratic_shape_factor(xi+1)  
+            rho[j,r[i]]   += qw[i] * quadratic_shape_factor(1-xi)  
             
             if r[i] < Nx-2:
-                rho[j,r[i]+1]    += qw[i] * quadratic_shape_factor(xi+2)
+                rho[j,r[i]+1]    += qw[i] * quadratic_shape_factor(2-xi)
 
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", parallel=True)
 def deposit_rho_cubic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx ):
     """
     Charge density deposition for cubic particle shapes
@@ -365,45 +313,46 @@ def deposit_rho_cubic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             
-            xi = (xg[l[i]] - x[i])*idx
+            xi = (x[i] - xg[l[i]])*idx
             
             if l[i] > 0:
-                rho[j,l[i]-1] += qw[i] * cubic_shape_factor(xi-1)
+                rho[j,l[i]-1] += qw[i] * cubic_shape_factor(1+xi)
                 
             rho[j,l[i]]   += qw[i] * cubic_shape_factor(xi  )
-            rho[j,r[i]]   += qw[i] * cubic_shape_factor(xi+1)  
+            rho[j,r[i]]   += qw[i] * cubic_shape_factor(1-xi)  
             
             if r[i] < Nx-2:
-                rho[j,r[i]+1]    += qw[i] * cubic_shape_factor(xi+2)
+                rho[j,r[i]+1]    += qw[i] * cubic_shape_factor(2-xi)
 
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", parallel=True)
 def deposit_rho_quartic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx ):
     """
     Charge density deposition for quartic particle shapes
     """ 
+    
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
 
-            xi = (xg[l[i]] - x[i])*idx
+            xi = (x[i] - xg[l[i]])*idx
             
             if l[i] > 1:
-                rho[j,l[i]-2] += qw[i] * quartic_shape_factor(xi-2)
+                rho[j,l[i]-2] += qw[i] * quartic_shape_factor(2+xi)
             if l[i] > 0:
-                rho[j,l[i]-1] += qw[i] * quartic_shape_factor(xi-1)
+                rho[j,l[i]-1] += qw[i] * quartic_shape_factor(1+xi)
                 
             rho[j,l[i]]   += qw[i] * quartic_shape_factor(xi  )
-            rho[j,r[i]]   += qw[i] * quartic_shape_factor(xi+1)  
+            rho[j,r[i]]   += qw[i] * quartic_shape_factor(1-xi)  
             
             if r[i] < Nx-2:
-                rho[j,r[i]+1]    += qw[i] * quartic_shape_factor(xi+2)  
+                rho[j,r[i]+1]    += qw[i] * quartic_shape_factor(2-xi)  
             if r[i] < Nx-3:
-                rho[j,r[i]+2]    += qw[i] * quartic_shape_factor(xi+3)  
+                rho[j,r[i]+2]    += qw[i] * quartic_shape_factor(3-xi)  
                 
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)", parallel=True)
 def boris_numba( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, backstep=False):
     """
     Boris particle push
@@ -462,7 +411,7 @@ def boris_numba( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, backstep=False):
          
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(i8, f8[::1], b1[::1], u4[::1], u4[::1], f8, f8, f8, i8)", parallel=True)
 def reseat_numba(N,x,state,l,r,x0,x1,dx,Nx ):
     """
     Update the left and right indices for particles
@@ -495,7 +444,7 @@ def reseat_numba(N,x,state,l,r,x0,x1,dx,Nx ):
  
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", parallel=True)
 def interpolate_linear_numba(Eg,Bg, Es,Bs, l,r, x, N):
     """
     Interpolate fields from the grid onto particles
@@ -520,7 +469,7 @@ def interpolate_linear_numba(Eg,Bg, Es,Bs, l,r, x, N):
         
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", parallel=True)
 def interpolate_quadratic_numba(Eg,Bg, Es,Bs, l,r, x, N):
     """
     Interpolate fields from the grid onto particles
@@ -536,25 +485,25 @@ def interpolate_quadratic_numba(Eg,Bg, Es,Bs, l,r, x, N):
 
     No return neccessary as arrays are modified in-place.
     """
-    shape_factor = quadratic_shape_factor
     
     for i in numba.prange(N):
 
         xi = x[i] - l[i]
 
-        Es[:,i] = Eg[:,l[i]-1]*shape_factor( -xi-1) + \
-                  Eg[:,l[i]  ]*shape_factor( -xi  ) + \
-                  Eg[:,r[i]  ]*shape_factor(1-xi  ) + \
-                  Eg[:,r[i]+1]*shape_factor(2-xi  ) 
+        Es[:,i] = Eg[:,l[i]-1]*quadratic_shape_factor(   xi+1 ) + \
+                  Eg[:,l[i]  ]*quadratic_shape_factor(   xi   ) + \
+                  Eg[:,r[i]  ]*quadratic_shape_factor( 1-xi   ) + \
+                  Eg[:,r[i]+1]*quadratic_shape_factor( 2-xi   ) 
+
                   
-        Bs[:,i] = Bg[:,l[i]-1]*shape_factor(-xi-1) + \
-                  Bg[:,l[i]  ]*shape_factor(-xi  ) + \
-                  Bg[:,r[i]  ]*shape_factor(-xi+1) + \
-                  Bg[:,r[i]+1]*shape_factor(-xi+2) 
+        Bs[:,i] = Bg[:,l[i]-1]*quadratic_shape_factor(   xi+1 ) + \
+                  Bg[:,l[i]  ]*quadratic_shape_factor(   xi   ) + \
+                  Bg[:,r[i]  ]*quadratic_shape_factor( 1-xi   ) + \
+                  Bg[:,r[i]+1]*quadratic_shape_factor( 2-xi   ) 
 
     return
 
-@numba.njit(parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", parallel=True)
 def interpolate_cubic_numba(Eg,Bg, Es,Bs, l,r, x, N):
     """
     Interpolate fields from the grid onto particles
@@ -570,27 +519,26 @@ def interpolate_cubic_numba(Eg,Bg, Es,Bs, l,r, x, N):
 
     No return neccessary as arrays are modified in-place.
     """
-    shape_factor = cubic_shape_factor
     
     for i in numba.prange(N):
 
         xi = x[i] - l[i]
 
-        Es[:,i] = Eg[:,l[i]-1]*shape_factor(-xi-1) + \
-                  Eg[:,l[i]  ]*shape_factor(-xi  ) + \
-                  Eg[:,r[i]  ]*shape_factor(-xi+1) + \
-                  Eg[:,r[i]+1]*shape_factor(-xi+2) 
+        Es[:,i] = Eg[:,l[i]-1]*cubic_shape_factor(   xi+1 ) + \
+                  Eg[:,l[i]  ]*cubic_shape_factor(   xi   ) + \
+                  Eg[:,r[i]  ]*cubic_shape_factor( 1-xi   ) + \
+                  Eg[:,r[i]+1]*cubic_shape_factor( 2-xi   ) 
 
                   
-        Bs[:,i] = Bg[:,l[i]-1]*shape_factor(-xi-1) + \
-                  Bg[:,l[i]  ]*shape_factor(-xi  ) + \
-                  Bg[:,r[i]  ]*shape_factor(-xi+1) + \
-                  Bg[:,r[i]+1]*shape_factor(-xi+2) 
+        Bs[:,i] = Bg[:,l[i]-1]*cubic_shape_factor(   xi+1 ) + \
+                  Bg[:,l[i]  ]*cubic_shape_factor(   xi   ) + \
+                  Bg[:,r[i]  ]*cubic_shape_factor( 1-xi   ) + \
+                  Bg[:,r[i]+1]*cubic_shape_factor( 2-xi   ) 
 
 
     return
  
-@numba.njit(parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", parallel=True)
 def interpolate_quartic_numba(Eg,Bg, Es,Bs, l,r, x, N):
     """
     Interpolate fields from the grid onto particles
@@ -606,26 +554,25 @@ def interpolate_quartic_numba(Eg,Bg, Es,Bs, l,r, x, N):
 
     No return neccessary as arrays are modified in-place.
     """
-    shape_factor = quartic_shape_factor
     
     for i in numba.prange(N):
 
         xi = x[i] - l[i]
-
-        Es[:,i] = Eg[:,l[i]-2]*shape_factor(-xi-2) + \
-                  Eg[:,l[i]-1]*shape_factor(-xi-1) + \
-                  Eg[:,l[i]  ]*shape_factor(-xi  ) + \
-                  Eg[:,r[i]  ]*shape_factor(-xi+1) + \
-                  Eg[:,r[i]+1]*shape_factor(-xi+2) + \
-                  Eg[:,r[i]+2]*shape_factor(-xi+3) 
+        
+        Es[:,i] = Eg[:,l[i]-2]*quartic_shape_factor(   xi+2 ) + \
+                  Eg[:,l[i]-1]*quartic_shape_factor(   xi+1 ) + \
+                  Eg[:,l[i]  ]*quartic_shape_factor(   xi   ) + \
+                  Eg[:,r[i]  ]*quartic_shape_factor( 1-xi   ) + \
+                  Eg[:,r[i]+1]*quartic_shape_factor( 2-xi   ) + \
+                  Eg[:,r[i]+2]*quartic_shape_factor( 3-xi   ) 
 
                   
-        Bs[:,i] = Bg[:,l[i]-2]*shape_factor(-xi-2) + \
-                  Bg[:,l[i]-1]*shape_factor(-xi-1) + \
-                  Bg[:,l[i]  ]*shape_factor(-xi  ) + \
-                  Bg[:,r[i]  ]*shape_factor(-xi+1) + \
-                  Bg[:,r[i]+1]*shape_factor(-xi+2) + \
-                  Bg[:,r[i]+2]*shape_factor(-xi+3) 
+        Bs[:,i] = Bg[:,l[i]-2]*quartic_shape_factor(   xi+2 ) + \
+                  Bg[:,l[i]-1]*quartic_shape_factor(   xi+1 ) + \
+                  Bg[:,l[i]  ]*quartic_shape_factor(   xi   ) + \
+                  Bg[:,r[i]  ]*quartic_shape_factor( 1-xi   ) + \
+                  Bg[:,r[i]+1]*quartic_shape_factor( 2-xi   ) + \
+                  Bg[:,r[i]+2]*quartic_shape_factor( 3-xi   ) 
 
     return
    

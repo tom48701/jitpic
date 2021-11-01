@@ -18,7 +18,7 @@ from .numba_functions import interpolate_linear_numba, interpolate_quadratic_num
 # charge deposition functions                       
 from .numba_functions import deposit_rho_linear_numba, deposit_rho_quadratic_numba, \
                              deposit_rho_cubic_numba, deposit_rho_quartic_numba
-
+                           
 import matplotlib.pyplot as plt 
             
 class simulation:
@@ -341,7 +341,7 @@ class simulation:
             
             self.deposit_J_func( xs, x_olds, ws, vys, vzs, l_olds, J_3D,
                           self.n_threads, indices, spec.q, xidx )
-            
+
         if backstep:
             J_3D *= -1.
         

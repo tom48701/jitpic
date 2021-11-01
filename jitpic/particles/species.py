@@ -86,7 +86,8 @@ class species:
             
         self.rg = 1./np.sqrt(1. + (self.p**2).sum(axis=0)/self.m**2)  # reciprocal gamma factor      
         
-        self.v = self.get_v()
+        self.v = np.zeros_like(self.p)
+        self.v[:,:] = self.p[:,:] / self.rg / self.m
         
         # setup array to contain the left and right cell indices
         self.l = np.zeros(self.N, dtype=np.dtype('u4'))
@@ -238,7 +239,7 @@ class species:
     
     def get_v(self):
         """Return only living particle velocities """
-        return self.p[:,self.state] * self.rg[self.state] / self.m 
+        return self.v[:,self.state]
 
     def get_KE(self):
         """Return only living particle KEs"""

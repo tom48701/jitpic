@@ -1,6 +1,124 @@
 import numba
 import numpy as np
 
+@numba.njit("f8(f8)")
+def ngp_shape_factor(x):
+    if abs(x) < 0.5:
+        return 1
+    else:
+        return 0
+    
+@numba.njit("f8(f8)")
+def linear_shape_factor(x):
+    if x < 1:
+        return 1-x
+    else:
+        return 0
+    
+@numba.njit("f8(f8)")
+def linear_shape_factor_old(x):
+    if x < -1:
+        return 0
+    if x < 0:
+        return x+1
+    elif x < 1:
+        return 1-x
+    else:
+        return 0
+    
+@numba.njit("f8(f8)")
+def quadratic_shape_factor_old(x):
+    if x < -1.5:
+        return 0
+    elif x < -0.5:
+        return (x**2+3*x+9/4.)/2.
+    elif x < 0.5:
+        return 0.75-x**2
+    elif x < 1.5:
+        return (x**2-3*x+9/4.)/2.
+    else:
+        return 0
+    
+@numba.njit("f8(f8)") 
+def cubic_shape_factor_old(x):
+    if x < -2:
+        return 0
+    elif x < -1:
+        return (x**3+6*x**2+12*x+8)/6.
+    elif x < 0:
+        return (-3*x**3-6*x**2+4)/6.
+    elif x < 1:
+        return (3*x**3-6*x**2+4)/6.
+    elif x < 2:
+        return (-x**3+6*x**2-12*x+8)/6.
+    else: 
+        return 0
+    
+@numba.njit("f8(f8)") 
+def quartic_shape_factor_old(x):
+    if x < -2.5:
+        return 0
+    elif x < -1.5:
+        return (2*x+5)**4 /384.
+    elif x < -0.5:
+        return -(16*x**4+80*x**3+120*x**2+20*x-55) /96.
+    elif x < 0.5:
+        return (48*x**4-120*x**2+115)/192.
+    elif x < 1.5:
+        return (-16*x**4+80*x**3-120*x**2+20*x+55) /96.
+    elif x < 2.5:
+        return (2*x-5)**4 /384.
+    else: 
+        return 0
+
+@numba.njit("f8(f8)")
+def integrated_ngp_shape_factor(x):    
+    if x < -0.5:
+        return -0.5
+    elif x < 0.5:
+        return x
+    else:# x>1:
+        return 0.5 
+    
+@numba.njit("f8(f8)")
+def integrated_linear_shape_factor_old(x):    
+    if x < -1:
+        return -0.5
+    elif x < 0:
+        return .5*x**2+x
+    elif x < 1:
+        return x-.5*x**2
+    else:# x>1:
+        return 0.5  
+
+@numba.njit("f8(f8)")
+def integrated_quadratic_shape_factor_old(x):    
+    if x < -1.5:
+        return -0.5
+    elif x < -0.5:
+        return (8*x**3+36*x**2+54*x+3)/48.
+    elif x < 0.5:
+        return 0.75*x-x**3/3.
+    elif x < 1.5:
+        return (8*x**3-36*x**2+54*x-3)/48.
+    else: # x>1.5
+        return 0.5
+
+@numba.njit("f8(f8)")
+def integrated_cubic_shape_factor_old(x):    
+    if x < -2:
+        return -0.5
+    elif x < -1:
+        return (x**4+8*x**3+24*x**2+32*x+4) /24.
+    elif x < 0:
+        return -x*(3*x**3+8*x**2-16) /24.
+    elif x < 1:
+        return x*(3*x**3-8*x**2+16) /24.
+    elif x < 2:
+        return (-x**4+8*x**3-24*x**2+32*x-4) /24.
+    else: # x > 2
+        return 0.5
+    
 @numba.njit(parallel=True)
 def deposit_current_old_version( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx, x2 ):
@@ -234,6 +352,45 @@ def deposit_current_old_version( xs, x_olds, ws, vys, vzs, l_olds, J,
             
     return
 
+@numba.njit(parallel=True)
+def deposit_J_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
+                   n_threads, indices, q, xidx,
+                   shape, l_factor, t_factor):
+    """
+    Current deposition for arbitrary particle shapes
+    """
+    for k in numba.prange(n_threads):
+        for j in range( indices[k], indices[k+1] ):   
+            
+            x = xs[j]
+            x_old = x_olds[j]
+            
+            if x == x_old: # no displacement? no current; continue
+                continue
+            
+            i = int(l_olds[j]) # l for x_old
+            xi = xidx[i] # left grid cell position
+
+            dx1 = xi - x
+            dx0 = xi - x_old
+            
+            # longitudinal start/end indices
+            l0 = -shape//2
+            l1 = 3 + (shape-1)//2
+            
+            for l in range(l0, l1, 1):
+                J[k,0, i+l ] += ws[j]*q*( l_factor( dx0+l ) - l_factor( dx1+l ) )
+
+            dx = xi + 0.5 - .5*(x+x_old) 
+            
+            # transverse start/end indices
+            t0 = -(shape-1)//2 - 1
+            t1 = 2+2*(shape//2) + (1-shape)//2
+            for t in range(t0, t1, 1):
+                J[k,1, i+t ] += vys[j]*ws[j]*q * t_factor( dx+t ) 
+                J[k,2, i+t ] += vzs[j]*ws[j]*q * t_factor( dx+t ) 
+
+    return
 
 @numba.njit(parallel=True)
 def cohen_numba( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, backstep=False):
