@@ -73,13 +73,21 @@ class simgrid:
         """
         Get the specified field without the edge cells
         
-        field : str ('E','B','J') : field to extract 
+        field : str ('E','B','J','S') : field to extract 
+        
+        'E' and 'B' return all components of the electric and magnetic fields
+        'J' returns all components of the most recent current deposition
+        'S'  returns only the longitudinal component of the Poynting vector
         """
         
         if field == 'J':
             f = getattr(self, field)[:,:-self.NJ]
         elif field in ('E','B'):
             f = getattr(self, field)[:,:-self.NEB]
+        elif field == 'S':
+            E = getattr(self, 'E')[:,:-self.NEB]
+            B = getattr(self, 'B')[:,:-self.NEB]
+            f = E[1]*B[2] - E[2]*B[1]
         else:
             print('unrecognised field')
             return

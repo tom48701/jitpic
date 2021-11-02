@@ -1,11 +1,15 @@
 import numba
 import numpy as np
 
-# Piecewise functions for the various particle shapes
-# 0th and 1st order shapes are simple enough that they are faster to implement using intrinsic functions
+# toggles for numba options
+parallel = True
+fastmath = True
+cache = True
 
-# assume positive values only    
-@numba.njit("f8(f8)")
+# define the iecewise functions for the various particle shapes
+# assume positive argument values only
+# (0th and 1st order shapes are simple enough that they are faster to implement using intrinsic functions)
+@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
 def quadratic_shape_factor(x):
     if x < 0.5:
         return 0.75-x**2
@@ -14,7 +18,7 @@ def quadratic_shape_factor(x):
     else:
         return 0
 
-@numba.njit("f8(f8)") 
+@numba.njit("f8(f8)", cache=cache, fastmath=fastmath) 
 def cubic_shape_factor(x):
     if x < 1:
         return (3*x**3-6*x**2+4) * 0.16666666666666666
@@ -23,7 +27,7 @@ def cubic_shape_factor(x):
     else: 
         return 0
 
-@numba.njit("f8(f8)") 
+@numba.njit("f8(f8)", cache=cache, fastmath=fastmath) 
 def quartic_shape_factor(x):
     if x < 0.5:
         return (48*x**4-120*x**2+115) * 0.005208333333333333
@@ -35,7 +39,7 @@ def quartic_shape_factor(x):
         return 0
     
 # integrated shape functions for current deposition
-@numba.njit("f8(f8)")
+@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
 def integrated_linear_shape_factor(x):
     sgn = np.sign(x)
     x = abs(x)    
@@ -44,7 +48,7 @@ def integrated_linear_shape_factor(x):
     else:# x>1:
         return sgn * 0.5 
      
-@numba.njit("f8(f8)")
+@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
 def integrated_quadratic_shape_factor(x):  
     sgn = np.sign(x)
     x = abs(x)
@@ -55,7 +59,7 @@ def integrated_quadratic_shape_factor(x):
     else: # x>1.5
         return sgn * 0.5
 
-@numba.njit("f8(f8)")
+@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
 def integrated_cubic_shape_factor(x):    
     sgn = np.sign(x)
     x = abs(x)
@@ -65,12 +69,27 @@ def integrated_cubic_shape_factor(x):
         return sgn * (-x**4+8*x**3-24*x**2+32*x-4) * 0.041666666666666664
     else: # x > 2
         return sgn * 0.5
-    
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", parallel=True)
+
+@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def deposit_J_linear_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
     Current deposition for linear particle shapes
+    
+    xs        : current particle positions
+    x_olds    : old particle positions
+    ws        : particle weights
+    vys       : particle y velocities
+    vzs       : particle z velocities
+    l_olds    : old particle left cell indices
+    J         : 3D current array
+    n_threads : number of parallel threads
+    indices   : particle index start/stop for each thread
+    q         : particle charge
+    xidx      : grid positions
+
+    No returns neccessary as arrays are modified in-place.
     """
     for k in numba.prange(n_threads):
         for j in range( indices[k], indices[k+1] ):   
@@ -91,6 +110,7 @@ def deposit_J_linear_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             dx1 = xi - x
             dx0 = xi - x_old
             
+            # integrated NGP factor implemented with intrinsic functions for speed
             J[k,0, i-1] += w*( min(max( dx0-1, -0.5), 0.5) - min(max( dx1-1, -0.5), 0.5) )
             J[k,0, i  ] += w*( min(max( dx0  , -0.5), 0.5) - min(max( dx1  , -0.5), 0.5) )
             J[k,0, i+1] += w*( min(max( dx0+1, -0.5), 0.5) - min(max( dx1+1, -0.5), 0.5) )
@@ -98,6 +118,7 @@ def deposit_J_linear_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             
             dx = xi + 0.5 - .5*(x+x_old) 
             
+            # linear shape factors are faster to implement with intrinsic functions
             J[k,1, i-1] += w*vy * max( 0, dx ) 
             J[k,1, i  ] += w*vy * max( 0, 1-abs(dx)   ) 
             J[k,1, i+1] += w*vy * max( 0, -dx ) 
@@ -108,11 +129,26 @@ def deposit_J_linear_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
 
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", parallel=True)
+@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def deposit_J_quadratic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
     Current deposition for quadratic particle shapes
+    
+    xs        : current particle positions
+    x_olds    : old particle positions
+    ws        : particle weights
+    vys       : particle y velocities
+    vzs       : particle z velocities
+    l_olds    : old particle left cell indices
+    J         : 3D current array
+    n_threads : number of parallel threads
+    indices   : particle index start/stop for each thread
+    q         : particle charge
+    xidx      : grid positions
+
+    No returns neccessary as arrays are modified in-place.
     """
     shape_factor = integrated_linear_shape_factor  
     shape_factor_unint = quadratic_shape_factor
@@ -159,11 +195,26 @@ def deposit_J_quadratic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
             J[k,2, i+2] += w*vz * shape_factor_unint( 2+dx )
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", parallel=True)
+@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def deposit_J_cubic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
     Current deposition for cubic particle shapes
+        
+    xs        : current particle positions
+    x_olds    : old particle positions
+    ws        : particle weights
+    vys       : particle y velocities
+    vzs       : particle z velocities
+    l_olds    : old particle left cell indices
+    J         : 3D current array
+    n_threads : number of parallel threads
+    indices   : particle index start/stop for each thread
+    q         : particle charge
+    xidx      : grid positions
+
+    No returns neccessary as arrays are modified in-place.
     """
     shape_factor = integrated_quadratic_shape_factor  
     shape_factor_unint = cubic_shape_factor
@@ -213,11 +264,26 @@ def deposit_J_cubic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
 
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", parallel=True)
+@numba.njit("(f8[::1], f8[::1], f8[::1], f8[::1], f8[::1], i4[::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1])", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
     Current deposition for quartic particle shapes
+        
+    xs        : current particle positions
+    x_olds    : old particle positions
+    ws        : particle weights
+    vys       : particle y velocities
+    vzs       : particle z velocities
+    l_olds    : old particle left cell indices
+    J         : 3D current array
+    n_threads : number of parallel threads
+    indices   : particle index start/stop for each thread
+    q         : particle charge
+    xidx      : grid positions
+
+    No returns neccessary as arrays are modified in-place.
     """
     
     shape_factor = integrated_cubic_shape_factor
@@ -273,10 +339,25 @@ def deposit_J_quartic_numba( xs, x_olds, ws, vys, vzs, l_olds, J,
 
     return
     
-@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", parallel=True)
+@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def deposit_rho_linear_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx ):
     """
     Charge density deposition for linear particle shapes
+    
+    N         : number of particles
+    n_threads : number of parallel threads
+    x         : particle positions
+    idx       : inverse grid dx
+    qw        : particle (w*q)
+    rho       : 2D rho array
+    l         : particle left cell indices
+    r         : particle right cell indices
+    indices   : particle index start/stop for each thread
+    xg        : grid points
+    Nx        : grid Nx
+
+    No returns neccessary as arrays are modified in-place.
     """
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
@@ -288,10 +369,25 @@ def deposit_rho_linear_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, N
             
     return
 
-@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", parallel=True)
+@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def deposit_rho_quadratic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx ):
     """
     Charge density deposition for quadratic particle shapes
+
+    N         : number of particles
+    n_threads : number of parallel threads
+    x         : particle positions
+    idx       : inverse grid dx
+    qw        : particle (w*q)
+    rho       : 2D rho array
+    l         : particle left cell indices
+    r         : particle right cell indices
+    indices   : particle index start/stop for each thread
+    xg        : grid points
+    Nx        : grid Nx
+
+    No returns neccessary as arrays are modified in-place.
     """ 
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
@@ -309,10 +405,25 @@ def deposit_rho_quadratic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg
 
     return
 
-@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", parallel=True)
+@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def deposit_rho_cubic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx ):
     """
     Charge density deposition for cubic particle shapes
+
+    N         : number of particles
+    n_threads : number of parallel threads
+    x         : particle positions
+    idx       : inverse grid dx
+    qw        : particle (w*q)
+    rho       : 2D rho array
+    l         : particle left cell indices
+    r         : particle right cell indices
+    indices   : particle index start/stop for each thread
+    xg        : grid points
+    Nx        : grid Nx
+
+    No returns neccessary as arrays are modified in-place.
     """ 
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
@@ -330,10 +441,25 @@ def deposit_rho_cubic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx
 
     return
 
-@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", parallel=True)
+@numba.njit("(i8, i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], i4[::1], f8[::1], i4)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def deposit_rho_quartic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, Nx ):
     """
     Charge density deposition for quartic particle shapes
+
+    N         : number of particles
+    n_threads : number of parallel threads
+    x         : particle positions
+    idx       : inverse grid dx
+    qw        : particle (w*q)
+    rho       : 2D rho array
+    l         : particle left cell indices
+    r         : particle right cell indices
+    indices   : particle index start/stop for each thread
+    xg        : grid points
+    Nx        : grid Nx
+
+    No returns neccessary as arrays are modified in-place.
     """ 
     
     for j in numba.prange(n_threads):
@@ -356,7 +482,8 @@ def deposit_rho_quartic_numba(N, n_threads, x, idx, qw, rho, l, r, indices, xg, 
                 
     return
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)",  parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def cohen_numba( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, backstep=False):
     """
     Cohen particle push
@@ -415,7 +542,8 @@ def cohen_numba( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, backstep=False):
          
     return
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)", parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def boris_numba( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, backstep=False):
     """
     Boris particle push
@@ -474,8 +602,9 @@ def boris_numba( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, backstep=False):
          
     return
 
-@numba.njit("(i8, f8[::1], b1[::1], u4[::1], u4[::1], f8, f8, f8, i8)", parallel=True)
-def reseat_numba(N,x,state,l,r,x0,x1,dx,Nx ):
+@numba.njit("(i8, f8[::1], b1[::1], u4[::1], u4[::1], f8, f8, f8, i8)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
+def reseat_numba(N,x,state,l,r,x0,x1,idx,Nx ):
     """
     Update the left and right indices for particles
     after a push, then look for particles that have 
@@ -488,13 +617,13 @@ def reseat_numba(N,x,state,l,r,x0,x1,dx,Nx ):
     r     : right cell index
     x0    : grid x0
     x1    : grid x1
-    dx    : grid dx
+    idx   : grid inverse dx
     Nx    : grid Nx
      
     No return neccessary as arrays are modified in-place.
     """
     
-    l[:] = np.floor((x-x0)/dx) # left cell
+    l[:] = np.floor((x-x0)*idx) # left cell
     r[:] = l+1 # right cell   
         
     for i in numba.prange(N):
@@ -507,7 +636,8 @@ def reseat_numba(N,x,state,l,r,x0,x1,dx,Nx ):
  
     return
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def interpolate_linear_numba(Eg,Bg, Es,Bs, l,r, x, N):
     """
     Interpolate fields from the grid onto particles
@@ -532,7 +662,8 @@ def interpolate_linear_numba(Eg,Bg, Es,Bs, l,r, x, N):
         
     return
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def interpolate_quadratic_numba(Eg,Bg, Es,Bs, l,r, x, N):
     """
     Interpolate fields from the grid onto particles
@@ -566,7 +697,8 @@ def interpolate_quadratic_numba(Eg,Bg, Es,Bs, l,r, x, N):
 
     return
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", parallel=True)
+@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def interpolate_cubic_numba(Eg,Bg, Es,Bs, l,r, x, N):
     """
     Interpolate fields from the grid onto particles
@@ -600,8 +732,9 @@ def interpolate_cubic_numba(Eg,Bg, Es,Bs, l,r, x, N):
 
 
     return
- 
-@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", parallel=True)
+
+@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
 def interpolate_quartic_numba(Eg,Bg, Es,Bs, l,r, x, N):
     """
     Interpolate fields from the grid onto particles

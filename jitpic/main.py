@@ -8,7 +8,7 @@ from .laser import laser
 from .diagnostics import timeseries_diagnostic
 
 # particle push and reseating functions
-from .numba_functions import boris_numba, cohen_numba, reseat_numba
+from .numba_functions import cohen_numba, reseat_numba
 # current deposition functions
 from .numba_functions import deposit_J_linear_numba, deposit_J_quadratic_numba, \
                              deposit_J_cubic_numba, deposit_J_quartic_numba
@@ -180,15 +180,15 @@ class simulation:
                 
                 for spec in self.species:
                     spec.inject_particles(self.grid)
-                    
+                
+                # Clean up dead particles periodically
+                if self.iter%self.resize_period == 0:
+                    for spec in self.species:
+                        spec.compact_particle_arrays()   
+                        
             # reseat / mask particles    
             self.reseat_particles()
-                
-            # Clean up the particles periodically
-            if self.iter%self.resize_period == 0:
-                for spec in self.species:
-                    spec.compact_particle_arrays()
-    
+
             self.t += self.dt
             self.iter += 1
 
@@ -378,9 +378,9 @@ class simulation:
             self.interpolate_func(self.grid.E,self.grid.B,
                               spec.E, spec.B,
                               spec.l, spec.r, 
-                              (spec.x - self.grid.x0)/self.grid.dx,
+                              (spec.x - self.grid.x0)*self.grid.idx,
                               spec.N)
-    
+
         return 
     
     def push_fields(self):
@@ -432,18 +432,15 @@ class simulation:
             
         for spec in self.species:
 
-            qmdt2 = 3.141592653589793 * spec.qm * dt
-            #qmdt2 = 6.283185307179586 * spec.qm * dt
+            #qmdt2 = 3.141592653589793 * spec.qm * dt # (boris) 
+            qmdt2 = 6.283185307179586 * spec.qm * dt
             
             # apply external fields
             E = spec.E + self.E_ext
             B = spec.B + self.B_ext
             
-            boris_numba( E, B, qmdt2, spec.p, spec.v, spec.x, spec.x_old, 
-                        spec.rg, spec.m, dt, spec.N, backstep=backstep)
-            
-            # cohen_numba( E, B, qmdt2, spec.p, spec.v, spec.x, spec.x_old, 
-            #             spec.rg, spec.m, dt, spec.N, backstep=backstep)  
+            cohen_numba( E, B, qmdt2, spec.p, spec.v, spec.x, spec.x_old, 
+                        spec.rg, spec.m, dt, spec.N, backstep=backstep)  
                       
         return
 
@@ -454,8 +451,8 @@ class simulation:
         
         for spec in self.species:
 
-            reseat_numba(spec.N,spec.x,spec.state,spec.l,spec.r,
-                         self.grid.x0,self.grid.x1,self.grid.dx,self.grid.Nx)
+            reseat_numba(spec.N, spec.x, spec.state, spec.l, spec.r,
+                         self.grid.x0, self.grid.x1, self.grid.idx, self.grid.Nx)
             
             spec.N_alive = spec.state.sum()
             
@@ -532,11 +529,7 @@ class simulation:
     def plot_result(self, index=None, dpi=220, fontsize=8, lambda0=8e-7, imagedir='images'):
         """
         Plot and save summary images.
-        
-        This method can be modified AS MUCH AS NEEDED to produce 
-        whatever figures are required. It has no bearing on the simulation
-        itself and is here purely for your convenience.
-        
+
         index : int      : specify a numerical index for the image, otherwise
                            the current simulation iteration is used
         dpi      : int   : image DPI, to quickly scale the images up or down in size
@@ -563,7 +556,7 @@ class simulation:
         
         return
     
-    def add_timeseries_diagnostic( self, fields, cells, 
+    def set_timeseries_diagnostic( self, fields, cells, 
                                   diagdir='diags', fname='timeseries_data'):
         """
         Add a timeseries diagnostic to the simulation
