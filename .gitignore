@@ -128,3 +128,7 @@ dmypy.json
 
 # old functions
 /jitpic/junk/
+
+# test data
+/jitpic/docs/diags/
+/jitpic/docs/images/

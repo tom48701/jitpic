@@ -1,3 +1,8 @@
+"""
+This is an basic example script for JitPIC,
+we will try to demonstrate the excitation of plasma waves using a laser
+"""
+
 import time
 import numpy as np
 from scipy.constants import m_e, m_p

@@ -550,7 +550,7 @@ class simulation:
         
         return
     
-    def set_timeseries_diagnostic( self, fields, cells, 
+    def add_timeseries_diagnostic( self, fields, cells, 
                                   diagdir='diags', fname='timeseries_data'):
         """
         Add a timeseries diagnostic to the simulation
