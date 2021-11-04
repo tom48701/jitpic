@@ -7,17 +7,19 @@ from .particles import species
 from .laser import laser
 from .diagnostics import timeseries_diagnostic
 
-# particle push and reseating functions
-from .numba_functions import boris_numba, reseat_numba
-# current deposition functions
-from .numba_functions import deposit_J_linear_numba, deposit_J_quadratic_numba, \
-                             deposit_J_cubic_numba, deposit_J_quartic_numba
-# field interpolation functions                           
-from .numba_functions import interpolate_linear_numba, interpolate_quadratic_numba, \
-                             interpolate_cubic_numba, interpolate_quartic_numba
-# charge deposition functions                       
-from .numba_functions import deposit_rho_linear_numba, deposit_rho_quadratic_numba, \
-                             deposit_rho_cubic_numba, deposit_rho_quartic_numba
+# # particle push and reseating functions
+# from .numba_functions import cohen_numba, reseat_open_numba, reseat_periodic_numba
+# # current deposition functions
+# from .numba_functions import deposit_J_linear_numba, deposit_J_quadratic_numba, \
+#                              deposit_J_cubic_numba, deposit_J_quartic_numba
+# # field interpolation functions                           
+# from .numba_functions import interpolate_linear_numba, interpolate_quadratic_numba, \
+#                              interpolate_cubic_numba, interpolate_quartic_numba
+# # charge deposition functions                       
+# from .numba_functions import deposit_rho_linear_numba, deposit_rho_quadratic_numba, \
+#                              deposit_rho_cubic_numba, deposit_rho_quartic_numba
+  
+from .numba_functions import function_dict
 
 import matplotlib.pyplot as plt 
             
@@ -30,7 +32,8 @@ class simulation:
                  particle_shape=1, diag_period=0, 
                  plotfunc=default_inline_plotting_script,
                  n_threads=numba.get_num_threads(), seed=0,
-                 resize_period=100 ):
+                 resize_period=100, boundaries='open',
+                 pusher='cohen'):
         """ 
         Initialise the simulation, set up the grid at the same time
         
@@ -48,6 +51,8 @@ class simulation:
         n_threads      : int       : number of CPU threads to use
         seed           : int       : set the RNG seed
         resize_period  : int       : interval between particle buffer resizing
+        boundaries     : str       : boundary conditions; 'open' or 'periodic'
+        pusher         : str       : particle pusher to use
         """
         # set the RNG seed for reproducability]
         self.seed = seed
@@ -60,34 +65,22 @@ class simulation:
         self.iter = 0
         self.lasers = []
         
+        # choose various numba functions based on simulation settings
+        # particle reseating
+        self.reseat_func = function_dict['reseat_%s'%boundaries]
+        # particle pusher
+        self.particle_push_func = function_dict[pusher]
+        # current deposition
+        self.deposit_J_func = function_dict['J%i_%s'%(particle_shape, boundaries)] 
+        # field interpolation
+        self.interpolate_func = function_dict['I%i_%s'%(particle_shape, boundaries)]
+        # charge deposition
+        self.deposit_rho_func = function_dict['R%i_%s'%(particle_shape, boundaries)]  
+
         self.particle_shape = particle_shape
+        self.boundaries = boundaries
         
-        # choose the deposition/gathering functions based on particle shape
-        # note: current deposition in x is one order lower than in y/z
-        if particle_shape == 1:
-            self.deposit_J_func = deposit_J_linear_numba
-            self.interpolate_func = interpolate_linear_numba
-            self.deposit_rho_func = deposit_rho_linear_numba
-            
-        elif particle_shape == 2:
-            self.deposit_J_func = deposit_J_quadratic_numba
-            self.interpolate_func = interpolate_quadratic_numba
-            self.deposit_rho_func = deposit_rho_quadratic_numba
-            
-        elif particle_shape == 3:
-            self.deposit_J_func = deposit_J_cubic_numba
-            self.interpolate_func = interpolate_cubic_numba
-            self.deposit_rho_func = deposit_rho_cubic_numba
-            
-        elif particle_shape == 4:
-            self.deposit_J_func = deposit_J_quartic_numba
-            self.interpolate_func = interpolate_quartic_numba
-            self.deposit_rho_func = deposit_rho_quartic_numba
-            
-        else:
-            raise ValueError('Particle shape %i not implemented!'%particle_shape)
-        
-        self.grid = simgrid(x0, x1, Nx, self.n_threads, particle_shape=self.particle_shape)
+        self.grid = simgrid(x0, x1, Nx, self.n_threads, self.boundaries, particle_shape=self.particle_shape)
     
         self.species = []
         self.Nspecies = len(species)
@@ -97,9 +90,9 @@ class simulation:
                 spec = species[i]
 
                 self.append_species(spec)    
-                
-        self.resize_period = resize_period
         
+        self.resize_period = resize_period
+    
         self.diag_period = diag_period 
         self.inline_plotting_script = plotfunc
         
@@ -109,7 +102,6 @@ class simulation:
         self.B_ext = np.zeros((3,1))
         
         self.tsdiag = None
-        
         self.moving_window = False
         
         return
@@ -120,6 +112,9 @@ class simulation:
         
         state : bool : moving window True/False
         """
+        if self.boundaries != 'open':
+            raise ValueError('Moving window must employ open boundaries')
+            
         self.moving_window = state
         return
     
@@ -131,10 +126,14 @@ class simulation:
         """
         
         print('\nJitPIC:')
-        print( 'performing %i PIC cycles from from step %i'%(N, self.iter) )
-        print( 'Using %i threads via %s'%(numba.get_num_threads(), numba.threading_layer()) )
+
         print( 't = %f, dt = %f'%(self.t, self.dt) )
-        print( 'Nx = %i, Np = %i\n'%( self.grid.Nx, sum([ spec.N for spec in self.species])) )
+        print( '%i cells, %i particles of order %i'%( self.grid.Nx, sum([ spec.N for spec in self.species]), self.particle_shape) )
+        print( 'Employing %s boundary conditions'%self.boundaries )
+        if self.moving_window:
+            print('Moving window active')
+        print( 'Using %i threads via %s'%(numba.get_num_threads(), numba.threading_layer()) )
+        print( 'performing %i PIC cycles from from step %i\n'%(N, self.iter) )
 
         t0 = time.time()
         t1 = t0
@@ -180,15 +179,15 @@ class simulation:
                 
                 for spec in self.species:
                     spec.inject_particles(self.grid)
-                    
+                
+                # Clean up dead particles periodically
+                if self.iter%self.resize_period == 0:
+                    for spec in self.species:
+                        spec.compact_particle_arrays()   
+                        
             # reseat / mask particles    
             self.reseat_particles()
-                
-            # Clean up the particles periodically
-            if self.iter%self.resize_period == 0:
-                for spec in self.species:
-                    spec.compact_particle_arrays()
-    
+
             self.t += self.dt
             self.iter += 1
 
@@ -235,9 +234,6 @@ class simulation:
         """ 
         Deposit the total charge density on the grid.
         For diagnostics only!
-        
-        The deposition is periodic for simplicity, expect small errors 
-        near the box edges. Might fix later...
         """
         
         rho = self.grid.rho
@@ -271,9 +267,6 @@ class simulation:
         For diagnostics only!
         
         spec  : species : the species to deposit
-        
-        The deposition is periodic for simplicity, expect small errors 
-        near the box edges. Might fix later...
         """    
 
         rho = self.grid.rho
@@ -341,7 +334,7 @@ class simulation:
             
             self.deposit_J_func( xs, x_olds, ws, vys, vzs, l_olds, J_3D,
                           self.n_threads, indices, spec.q, xidx )
-            
+
         if backstep:
             J_3D *= -1.
         
@@ -378,9 +371,9 @@ class simulation:
             self.interpolate_func(self.grid.E,self.grid.B,
                               spec.E, spec.B,
                               spec.l, spec.r, 
-                              (spec.x - self.grid.x0)/self.grid.dx,
-                              spec.N)
-    
+                              (spec.x - self.grid.x0)*self.grid.idx,
+                              spec.N )
+
         return 
     
     def push_fields(self):
@@ -393,22 +386,22 @@ class simulation:
         
         pidt = np.pi*self.dt
         
-        grid.E[0,:-grid.NEB] -= 2. * pidt * grid.J[0,:-grid.NJ]
+        grid.E[0,:grid.NEB] -= 2. * pidt * grid.J[0,:grid.NJ]
              
         PR = (grid.E[1] + grid.B[2]) * .5
         PL = (grid.E[1] - grid.B[2]) * .5
         SR = (grid.E[2] - grid.B[1]) * .5
         SL = (grid.E[2] + grid.B[1]) * .5
    
-        PR[grid.f_shift] = PR[:-grid.NEB] - pidt * grid.J[1,:-grid.NJ]
-        PL[:-grid.NEB] = PL[grid.f_shift] - pidt * grid.J[1,:-grid.NJ]
-        SR[grid.f_shift] = SR[:-grid.NEB] - pidt * grid.J[2,:-grid.NJ]
-        SL[:-grid.NEB] = SL[grid.f_shift] - pidt * grid.J[2,:-grid.NJ]
+        PR[grid.f_shift] = PR[:grid.NEB] - pidt * grid.J[1,:grid.NJ]
+        PL[:grid.NEB] = PL[grid.f_shift] - pidt * grid.J[1,:grid.NJ]
+        SR[grid.f_shift] = SR[:grid.NEB] - pidt * grid.J[2,:grid.NJ]
+        SL[:grid.NEB] = SL[grid.f_shift] - pidt * grid.J[2,:grid.NJ]
         
-        grid.E[1,:-grid.NEB] = PR[:-grid.NEB] + PL[:-grid.NEB]
-        grid.B[2,:-grid.NEB] = PR[:-grid.NEB] - PL[:-grid.NEB]
-        grid.E[2,:-grid.NEB] = SL[:-grid.NEB] + SR[:-grid.NEB]
-        grid.B[1,:-grid.NEB] = SL[:-grid.NEB] - SR[:-grid.NEB]
+        grid.E[1,:grid.NEB] = PR[:grid.NEB] + PL[:grid.NEB]
+        grid.B[2,:grid.NEB] = PR[:grid.NEB] - PL[:grid.NEB]
+        grid.E[2,:grid.NEB] = SL[:grid.NEB] + SR[:grid.NEB]
+        grid.B[1,:grid.NEB] = SL[:grid.NEB] - SR[:grid.NEB]
         
         return  
 
@@ -432,17 +425,16 @@ class simulation:
             
         for spec in self.species:
 
-            qmdt2 = np.pi * spec.qm * dt
+            #qmdt2 = 3.141592653589793 * spec.qm * dt # (boris) 
+            qmdt2 = 6.283185307179586 * spec.qm * dt
             
             # apply external fields
             E = spec.E + self.E_ext
             B = spec.B + self.B_ext
             
-            boris_numba( E, B, qmdt2, spec.p, spec.v, spec.x, spec.x_old, 
-                        spec.rg, spec.m, dt, spec.N, backstep=backstep)
-                
-        #self.reseat_particles()
-                
+            self.particle_push_func( E, B, qmdt2, spec.p, spec.v, spec.x, spec.x_old, 
+                        spec.rg, spec.m, dt, spec.N, backstep=backstep)  
+                      
         return
 
     def reseat_particles(self):
@@ -451,9 +443,10 @@ class simulation:
         """
         
         for spec in self.species:
-
-            reseat_numba(spec.N,spec.x,spec.state,spec.l,spec.r,
-                         self.grid.x0,self.grid.x1,self.grid.dx,self.grid.Nx)
+            
+            
+            self.reseat_func(spec.N, spec.x, spec.state, spec.l, spec.r,
+                         self.grid.x0, self.grid.x1, self.grid.dx, self.grid.idx, self.grid.Nx)
             
             spec.N_alive = spec.state.sum()
             
@@ -483,8 +476,8 @@ class simulation:
         
         E_laser, B_laser = new_laser.fields(self.grid)
         
-        self.grid.E[:,:-self.grid.NEB] += E_laser
-        self.grid.B[:,:-self.grid.NEB] += B_laser
+        self.grid.E[:,:self.grid.NEB] += E_laser
+        self.grid.B[:,:self.grid.NEB] += B_laser
         
         return
     
@@ -530,11 +523,7 @@ class simulation:
     def plot_result(self, index=None, dpi=220, fontsize=8, lambda0=8e-7, imagedir='images'):
         """
         Plot and save summary images.
-        
-        This method can be modified AS MUCH AS NEEDED to produce 
-        whatever figures are required. It has no bearing on the simulation
-        itself and is here purely for your convenience.
-        
+
         index : int      : specify a numerical index for the image, otherwise
                            the current simulation iteration is used
         dpi      : int   : image DPI, to quickly scale the images up or down in size
@@ -578,4 +567,6 @@ class simulation:
         
         self.tsdiag = timeseries_diagnostic(self, fields, cells,
                                             buffer_size=self.diag_period,
-                                            diagdir=diagdir, fname=fname)        
+                                            diagdir=diagdir, fname=fname)      
+        
+        

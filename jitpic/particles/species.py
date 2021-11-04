@@ -7,7 +7,8 @@ def default_profile(x):
 class species:
     """ Particle Species """
     
-    def __init__(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None):
+    def __init__(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None,
+                 p_x=0., p_y=0., p_z=0.):
         """
         name  : str    : species name for diagnostic purposes
         ppc   : int    : number of particles per cell
@@ -22,6 +23,7 @@ class species:
                          array with the same shape as grid.x densities 
                          specified by functions are normalised to the
                          reference density species.n
+        p_(i)   : float  : flow momentum
         """
 
         self.name = name 
@@ -39,6 +41,7 @@ class species:
         self.Ek = self.eV / 5.11e5 # / electron rest mass energy
         self.p_th = np.sqrt(self.Ek**2 + 2.*self.Ek*self.m) / np.sqrt(3) # thermal momentum
         self.p_th_reduced = self.p_th/np.sqrt(2.) # reduced thermal momentum
+        self.p_flow = np.array([p_x, p_y, p_z]) # flow momentum
         
         # use the default (flat) density profile if none is specified
         if dens is None:
@@ -59,12 +62,18 @@ class species:
         
         self.ddx = dx/(2*self.ppc) # inter-particle half-spacing
 
-        min_cell = max( 0,         int(self.p0/dx - grid.x0/dx)     )
-        max_cell = min( grid.Nx-1, int(self.p1/dx - grid.x0/dx + 1) )
-        
-        N = self.ppc*(max_cell-min_cell)
-        x = np.linspace( x[min_cell]+self.ddx, x[max_cell]-self.ddx, N )
-        
+        if grid.boundaries == 'open':
+            min_cell = max( 0,         int(self.p0/dx - grid.x0/dx)     )
+            max_cell = min( grid.Nx-1, int(self.p1/dx - grid.x0/dx + 1) )
+            
+            N = self.ppc*(max_cell-min_cell)
+            x = np.linspace( x[min_cell]+self.ddx, x[max_cell]-self.ddx, N )
+            
+        elif grid.boundaries == 'periodic':
+            N = self.ppc*grid.Nx
+            x = np.linspace( x[0] + self.ddx, x[-1]+dx - self.ddx, N)
+            
+            
         w = np.full(N, self.n/self.ppc) * self.dfunc(x) 
 
         self.w = w[w != 0]
@@ -80,19 +89,25 @@ class species:
         self.state = np.full(self.N, True, dtype=bool)
         self.N_alive = self.N # all particles should be alive at first
  
-        self.p = np.zeros((3,self.N))       
-        if self.Ek > 0.:
-            self.p = np.random.normal(0., self.p_th_reduced, self.p.shape) # initial thermal momentum
-            
+        p = np.zeros((3,self.N))       
+
+        # set initial flow and thermal momentum
+        p[0,:] = self.p_flow[0] * np.ones(self.N) + np.random.normal(0., self.p_th_reduced, self.N) 
+        p[1,:] = self.p_flow[1] * np.ones(self.N) + np.random.normal(0., self.p_th_reduced, self.N) 
+        p[2,:] = self.p_flow[2] * np.ones(self.N) + np.random.normal(0., self.p_th_reduced, self.N) 
+        self.p = p
+        
         self.rg = 1./np.sqrt(1. + (self.p**2).sum(axis=0)/self.m**2)  # reciprocal gamma factor      
         
-        self.v = self.get_v()
+        self.v = np.zeros_like(self.p)
+        self.v[:,:] = self.p[:,:] / self.rg / self.m
         
         # setup array to contain the left and right cell indices
         self.l = np.zeros(self.N, dtype=np.dtype('u4'))
         self.r = np.zeros(self.N, dtype=np.dtype('u4'))
         self.l[:] = np.floor((self.x-grid.x0)/grid.dx) # left cells
-        self.r[:] = self.l+1 # grid fields index - should be safe
+        
+        self.r[:] = np.mod(self.l+1, grid.Nx) # mod should only affect periodic mode
 
         return
 
@@ -238,7 +253,7 @@ class species:
     
     def get_v(self):
         """Return only living particle velocities """
-        return self.p[:,self.state] * self.rg[self.state] / self.m 
+        return self.v[:,self.state]
 
     def get_KE(self):
         """Return only living particle KEs"""
