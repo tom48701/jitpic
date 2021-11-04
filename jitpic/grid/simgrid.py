@@ -35,8 +35,8 @@ class simgrid:
         # we also need a higher dimensional arrays to avoid a race conditions in the
         # deposition methods
         if boundaries == 'open':
-            iEB = max(1, 2*particle_shape)
-            iJ = 2*(particle_shape+1)
+            iEB = 2*(particle_shape//2)+1
+            iJ =  2*(particle_shape//2)+3
             
             self.NEB = -iEB
             self.NJ = -iJ

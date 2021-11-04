@@ -41,70 +41,65 @@ class simulation:
         boundaries     : str       : boundary conditions; 'open' or 'periodic'
         pusher         : str       : particle pusher to use
         """
-        # set the RNG seed for reproducability]
+        # set the RNG seed for reproducability
         self.seed = seed
         np.random.seed(seed)
-        
+        # set the number of threads to use
         self.n_threads = n_threads
         numba.set_num_threads(n_threads)
-        
+        # initialise the simulation time and iterations
         self.t = 0.
         self.iter = 0
-        self.lasers = []
-        
+        # initialise the simulation grid and register the timestep
+        self.grid = simgrid(x0, x1, Nx, self.n_threads, self.boundaries, particle_shape=self.particle_shape)
+        self.dt = self.grid.dx
         # choose various numba functions based on simulation settings
         # particle reseating
         self.reseat_func = function_dict['reseat_%s'%boundaries]
         # particle pusher
         self.particle_push_func = function_dict[pusher]            
+        # set associated constant factor for particle pushing
+        if pusher == 'boris':
+            self.pushconst = np.pi * self.dt
+        elif pusher == 'cohen':
+            self.pushconst = 2*np.pi * self.dt
         # current deposition
         self.deposit_J_func = function_dict['J%i_%s'%(particle_shape, boundaries)] 
         # field interpolation
         self.interpolate_func = function_dict['I%i_%s'%(particle_shape, boundaries)]
         # charge deposition
         self.deposit_rho_func = function_dict['R%i_%s'%(particle_shape, boundaries)]  
-
+        # register the particle shape factor and boundary conditions
         self.particle_shape = particle_shape
         self.boundaries = boundaries
-        
-        self.grid = simgrid(x0, x1, Nx, self.n_threads, self.boundaries, particle_shape=self.particle_shape)
-        self.dt = self.grid.dx
-        
-        # set constant factor for particle pushing
-        if pusher == 'boris':
-            self.pushconst = np.pi * self.dt
-        elif pusher == 'cohen':
-            self.pushconst = 2*np.pi * self.dt
-            
+        # create empty lists for the lasers and particle species
+        self.lasers = []
         self.species = []
+        # register and append any pre-defined particle species
         self.Nspecies = len(species)
-            
         if self.Nspecies > 0:  
             for i in range(self.Nspecies):
                 spec = species[i]
-
                 self.append_species(spec)    
-        
-        self.resize_period = resize_period
-    
+        # register the diagnostic write period
         self.diag_period = diag_period 
+        # register the plotting function
         self.inline_plotting_script = plotfunc
-        
-
-
+        # initialise the external field arrays
         self.E_ext = np.zeros((3,1))
         self.B_ext = np.zeros((3,1))
-        
+        # initialise the timeseries diagnostic and moving window states
         self.tsdiag = None
         self.moving_window = False
-        
+        # register the particle buffer resize period
+        self.resize_period = resize_period
         return
 
     def set_moving_window(self, state):
         """
         Activate or deactivate the moving window 
         
-        state : bool : moving window True/False
+        state : bool : use moving window True/False
         """
         if self.boundaries != 'open':
             raise ValueError('Moving window must employ open boundaries')
@@ -118,9 +113,8 @@ class simulation:
         
         N : int : number of steps to perform
         """
-        
+        # write some information about the simulation
         print('\nJitPIC:')
-
         print( 't = %f, dt = %f'%(self.t, self.dt) )
         print( '%i cells, %i particles of order %i'%( self.grid.Nx, sum([ spec.N for spec in self.species]), self.particle_shape) )
         print( 'Employing %s boundary conditions'%self.boundaries )
@@ -128,12 +122,13 @@ class simulation:
             print('Moving window active')
         print( 'Using %i threads via %s'%(numba.get_num_threads(), numba.threading_layer()) )
         print( 'performing %i PIC cycles from from step %i\n'%(N, self.iter) )
-
+        # register the start time
         t0 = time.time()
         t1 = t0
-        
+        # begin the main loop
         for i in range(N):
             
+            # first step specific operations
             if self.iter == 0:
                 # offset p,v,J to -1/2
                 # (backstepping the particles will not advance x)
@@ -141,53 +136,49 @@ class simulation:
                 self.push_particles( backstep=True )
                 self.deposit_current( backstep=True )
                 
+            # periodic diagnostic operations
             if self.diag_period > 0 and self.iter%self.diag_period == 0:
+                # write initial diagnostics
                 print('Writing diagnostics at step %i (t = %.1f)'%(self.iter, self.t))
                 print('%.1f (%.1f) seconds elapsed (since last write)\n'%(time.time()-t0, time.time()-t1) )
-
+                # register the split time
                 t1 = time.time()
-                    
+                # write diagnostics and generate images if required
                 self.write_diagnostics()
-                
                 if self.inline_plotting_script is not None:
                     self.plot_result()  
-                
+                # append to the timeseries diagnostics if required
                 if self.tsdiag is not None and self.iter > 0:
                     self.tsdiag.write_data(self)
-
+            
+            # every-step operations, begin with writing timeseries data
             if self.tsdiag is not None:
                     self.tsdiag.gather_data(self)
-                    
-            #print( 'Now at step %i'%self.iter)
-
+            # begin the main PIC cycle
             #E,B,x at i
             #J,p,v at i-1/2
             self.apply_fields_to_particles()
             self.push_particles() # push p,v to +1/2. x to +1
             self.deposit_current()  # push J to +1/2 
             self.push_fields() #push E,B to +1
-
             # Deal with the moving window
             if self.moving_window:
                 self.grid.move_grid()
-                
+                # inject new particles
                 for spec in self.species:
                     spec.inject_particles(self.grid)
-                
                 # Clean up dead particles periodically
                 if self.iter%self.resize_period == 0:
                     for spec in self.species:
                         spec.compact_particle_arrays()   
-                        
-            # reseat / mask particles    
+            # reseat and set particle states    
             self.reseat_particles()
-
+            # advance the simulation time and iteration
             self.t += self.dt
             self.iter += 1
-
+        # finish the loop
         print( 'Finished in %.3f s'%(time.time()-t0))
         print( 'Now at t = %.3e\n'%self.t)
-  
         return  
     
     def add_new_species(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None):
