@@ -6,19 +6,6 @@ from .grid import simgrid
 from .particles import species
 from .laser import laser
 from .diagnostics import timeseries_diagnostic
-
-# # particle push and reseating functions
-# from .numba_functions import cohen_numba, reseat_open_numba, reseat_periodic_numba
-# # current deposition functions
-# from .numba_functions import deposit_J_linear_numba, deposit_J_quadratic_numba, \
-#                              deposit_J_cubic_numba, deposit_J_quartic_numba
-# # field interpolation functions                           
-# from .numba_functions import interpolate_linear_numba, interpolate_quadratic_numba, \
-#                              interpolate_cubic_numba, interpolate_quartic_numba
-# # charge deposition functions                       
-# from .numba_functions import deposit_rho_linear_numba, deposit_rho_quadratic_numba, \
-#                              deposit_rho_cubic_numba, deposit_rho_quartic_numba
-  
 from .numba_functions import function_dict
 
 import matplotlib.pyplot as plt 
@@ -69,7 +56,7 @@ class simulation:
         # particle reseating
         self.reseat_func = function_dict['reseat_%s'%boundaries]
         # particle pusher
-        self.particle_push_func = function_dict[pusher]
+        self.particle_push_func = function_dict[pusher]            
         # current deposition
         self.deposit_J_func = function_dict['J%i_%s'%(particle_shape, boundaries)] 
         # field interpolation
@@ -81,7 +68,14 @@ class simulation:
         self.boundaries = boundaries
         
         self.grid = simgrid(x0, x1, Nx, self.n_threads, self.boundaries, particle_shape=self.particle_shape)
-    
+        self.dt = self.grid.dx
+        
+        # set constant factor for particle pushing
+        if pusher == 'boris':
+            self.pushconst = np.pi * self.dt
+        elif pusher == 'cohen':
+            self.pushconst = 2*np.pi * self.dt
+            
         self.species = []
         self.Nspecies = len(species)
             
@@ -96,7 +90,7 @@ class simulation:
         self.diag_period = diag_period 
         self.inline_plotting_script = plotfunc
         
-        self.dt = self.grid.dx
+
 
         self.E_ext = np.zeros((3,1))
         self.B_ext = np.zeros((3,1))
@@ -425,14 +419,11 @@ class simulation:
             
         for spec in self.species:
 
-            #qmdt2 = 3.141592653589793 * spec.qm * dt # (boris) 
-            qmdt2 = 6.283185307179586 * spec.qm * dt
-            
             # apply external fields
             E = spec.E + self.E_ext
             B = spec.B + self.B_ext
             
-            self.particle_push_func( E, B, qmdt2, spec.p, spec.v, spec.x, spec.x_old, 
+            self.particle_push_func( E, B, self.pushconst*spec.qm, spec.p, spec.v, spec.x, spec.x_old, 
                         spec.rg, spec.m, dt, spec.N, backstep=backstep)  
                       
         return
