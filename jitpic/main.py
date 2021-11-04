@@ -51,8 +51,11 @@ class simulation:
         self.t = 0.
         self.iter = 0
         # initialise the simulation grid and register the timestep
-        self.grid = simgrid(x0, x1, Nx, self.n_threads, self.boundaries, particle_shape=self.particle_shape)
+        self.grid = simgrid(x0, x1, Nx, self.n_threads, boundaries, particle_shape=particle_shape)
         self.dt = self.grid.dx
+        # register the particle shape factor and boundary conditions
+        self.particle_shape = particle_shape
+        self.boundaries = boundaries
         # choose various numba functions based on simulation settings
         # particle reseating
         self.reseat_func = function_dict['reseat_%s'%boundaries]
@@ -69,9 +72,7 @@ class simulation:
         self.interpolate_func = function_dict['I%i_%s'%(particle_shape, boundaries)]
         # charge deposition
         self.deposit_rho_func = function_dict['R%i_%s'%(particle_shape, boundaries)]  
-        # register the particle shape factor and boundary conditions
-        self.particle_shape = particle_shape
-        self.boundaries = boundaries
+
         # create empty lists for the lasers and particle species
         self.lasers = []
         self.species = []
