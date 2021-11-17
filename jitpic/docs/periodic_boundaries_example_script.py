@@ -7,8 +7,8 @@ plotting script to show the phase-space vortices.
 import time
 import numpy as np
 
-from jitpic.main import simulation
-from jitpic.particles import species
+from jitpic.main import Simulation
+from jitpic.particles import Species
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -100,11 +100,11 @@ def plotting_script( sim, fontsize=8 ):
 ################## Simulation Initialisation #################
 
 # initialise the particle species 
-elec1 = species('elec+', ppc, n_e, x0, x1, eV=100, p_x=-p_flow )
-elec2 = species('elec-', ppc, n_e, x0, x1, eV=100, p_x=p_flow, )
+elec1 = Species('elec+', ppc, n_e, x0, x1, eV=100, p_x=-p_flow )
+elec2 = Species('elec-', ppc, n_e, x0, x1, eV=100, p_x=p_flow, )
 
 # initialise simulation object
-sim = simulation( x0, x1, Nx, species=[elec1, elec2], diag_period=20*res,
+sim = Simulation( x0, x1, Nx, species=[elec1, elec2], diag_period=20*res,
                  boundaries='periodic',
                  plotfunc=plotting_script)
 

@@ -6,8 +6,8 @@ we will try to demonstrate leading-edge erosion as in: doi.org/10.1063/1.872001
 import time
 import numpy as np
 
-from jitpic.main import simulation
-from jitpic.particles import species
+from jitpic.main import Simulation
+from jitpic.particles import Species
     
 ###################### Simulation Parameters #######################
     
@@ -29,10 +29,10 @@ p1 = 1000. # plasma end position
 ################## Simulation Initialisation #################
 
 # initialise the particle species 
-elec = species('elec', ppc, n_e, p0, p1, m=1., q=-1., eV=0.)
+elec = Species('elec', ppc, n_e, p0, p1, m=1., q=-1., eV=0.)
 
 # initialise simulation object
-sim = simulation( x0, x1, Nx, species=[elec], diag_period=50*res )
+sim = Simulation( x0, x1, Nx, species=[elec], diag_period=50*res )
 
 # add the laser
 sim.add_laser(a0, centroid, ctau )
