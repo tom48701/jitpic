@@ -29,6 +29,7 @@ p1 = 1000. # plasma end position
 ################## Simulation Initialisation #################
 
 # initialise the particle species 
+
 elec = Species('elec', ppc, n_e, p0, p1, m=1., q=-1., eV=0.)
 
 # initialise simulation object
