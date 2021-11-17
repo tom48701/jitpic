@@ -27,7 +27,6 @@ def J1o( xs, x_olds, ws, vys, vzs, l_olds, J,
     indices   : particle index start/stop for each thread
     q         : particle charge
     xidx      : grid positions
-
     No returns neccessary as arrays are modified in-place.
     """
     for k in numba.prange(n_threads):
@@ -54,7 +53,7 @@ def J1o( xs, x_olds, ws, vys, vzs, l_olds, J,
             vz = vzs[j]
             dx = xi + 0.5 - .5*(x+x_old) 
             
-            # the linear shape factor is also faster with intrinsics
+            # the linear shape factor is faster using intrinsics
             if vy != 0.: # Jy
                 J[k,1, i-1] += w*vy * max( 0, dx ) 
                 J[k,1, i  ] += w*vy * max( 0, 1-abs(dx)   ) 
@@ -85,7 +84,6 @@ def J2o( xs, x_olds, ws, vys, vzs, l_olds, J,
     indices   : particle index start/stop for each thread
     q         : particle charge
     xidx      : grid positions
-
     No returns neccessary as arrays are modified in-place.
     """
     for k in numba.prange(n_threads):
@@ -149,7 +147,6 @@ def J3o( xs, x_olds, ws, vys, vzs, l_olds, J,
     indices   : particle index start/stop for each thread
     q         : particle charge
     xidx      : grid positions
-
     No returns neccessary as arrays are modified in-place.
     """
     for k in numba.prange(n_threads):
@@ -213,7 +210,6 @@ def J4o( xs, x_olds, ws, vys, vzs, l_olds, J,
     indices   : particle index start/stop for each thread
     q         : particle charge
     xidx      : grid positions
-
     No returns neccessary as arrays are modified in-place.
     """
     for k in numba.prange(n_threads):
@@ -282,7 +278,6 @@ def J1p( xs, x_olds, ws, vys, vzs, l_olds, J,
     indices   : particle index start/stop for each thread
     q         : particle charge
     xidx      : grid positions
-
     No returns neccessary as arrays are modified in-place.
     """
     Nx = len(xidx)
@@ -360,7 +355,6 @@ def J2p( xs, x_olds, ws, vys, vzs, l_olds, J,
     indices   : particle index start/stop for each thread
     q         : particle charge
     xidx      : grid positions
-
     No returns neccessary as arrays are modified in-place.
     """
     Nx = len(xidx)
@@ -449,7 +443,6 @@ def J3p( xs, x_olds, ws, vys, vzs, l_olds, J,
     indices   : particle index start/stop for each thread
     q         : particle charge
     xidx      : grid positions
-
     No returns neccessary as arrays are modified in-place.
     """
     Nx = len(xidx)
@@ -538,7 +531,6 @@ def J4p( xs, x_olds, ws, vys, vzs, l_olds, J,
     indices   : particle index start/stop for each thread
     q         : particle charge
     xidx      : grid positions
-
     No returns neccessary as arrays are modified in-place.
     """
     Nx = len(xidx)  

@@ -1,10 +1,9 @@
 import numpy as np
 
-
 def default_profile(x):
     return np.ones_like(x)
         
-class species:
+class Species:
     """ Particle Species """
     
     def __init__(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None,
@@ -23,7 +22,7 @@ class species:
                          array with the same shape as grid.x densities 
                          specified by functions are normalised to the
                          reference density species.n
-        p_(i)   : float  : flow momentum
+        p_(i) : float  : flow momenta
         """
 
         self.name = name 
@@ -100,7 +99,7 @@ class species:
         self.rg = 1./np.sqrt(1. + (self.p**2).sum(axis=0)/self.m**2)  # reciprocal gamma factor      
         
         self.v = np.zeros_like(self.p)
-        self.v[:,:] = self.p[:,:] / self.rg / self.m
+        self.v[:,:] = self.p[:,:] * self.rg / self.m
         
         # setup array to contain the left and right cell indices
         self.l = np.zeros(self.N, dtype=np.dtype('u4'))
@@ -110,7 +109,15 @@ class species:
         self.r[:] = np.mod(self.l+1, grid.Nx) # mod should only affect periodic mode
 
         return
-
+    
+    def revert_x(self):
+        """
+        Overwrite current particle positions with their previous positions.
+        Used only for the initial p,v,J offset.
+        """
+        self.x[:] = self.x_old[:]
+        return
+        
     def inject_particles(self, grid):
         """
         Generate and append one cell's-worth of particles to the grid
@@ -257,4 +264,4 @@ class species:
 
     def get_KE(self):
         """Return only living particle KEs"""
-        return (1./self.rg[self.state]  - 1.)*self.m*self.w[self.state] 
+        return (1./self.rg[self.state]  - 1.)*self.w[self.state] 

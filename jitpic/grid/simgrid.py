@@ -1,6 +1,6 @@
 import numpy as np
 
-class simgrid:
+class Simgrid:
     """1D simulation grid"""
 
     def __init__(self, x0, x1, Nx, n_threads, boundaries, particle_shape=1):
@@ -35,8 +35,8 @@ class simgrid:
         # we also need a higher dimensional arrays to avoid a race conditions in the
         # deposition methods
         if boundaries == 'open':
-            iEB = 2*(particle_shape//2)+1
-            iJ =  2*(particle_shape//2)+3
+            iEB = max(1, 2*particle_shape)
+            iJ = 2*(particle_shape+1)
             
             self.NEB = -iEB
             self.NJ = -iJ

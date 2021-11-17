@@ -7,8 +7,8 @@ import time
 import numpy as np
 from scipy.constants import m_e, m_p
 
-from jitpic.main import simulation
-from jitpic.particles import species
+from jitpic.main import Simulation
+from jitpic.particles import Species
 
 ###################### Simulation Parameters #######################
     
@@ -39,11 +39,11 @@ p1 = x1    # plasma end position
 ################## Simulation Initialisation #################
 
 # initialise the particle species 
-elec = species('elec', ppc, n_e, p0, p1, dens=dens )
+elec = Species('elec', ppc, n_e, p0, p1, dens=dens )
 #ions = species('ions', ppc, n_e, p0, p1, dens=dens, m=m_p/m_e, q=1. )
 
 # initialise simulation object
-sim = simulation( x0, x1, Nx, species=[elec], diag_period=50*res )
+sim = Simulation( x0, x1, Nx, species=[elec], diag_period=50*res )
 
 #add a timeseries diagnostic
 sim.add_timeseries_diagnostic( cells=[ int((x-x0)*res) for x in [0, 150] ], fields=['E'] )
