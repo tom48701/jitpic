@@ -1,6 +1,6 @@
 import numpy as np
 
-class simgrid:
+class Simgrid:
     """1D simulation grid"""
 
     def __init__(self, x0, x1, Nx, n_threads, boundaries, particle_shape=1):

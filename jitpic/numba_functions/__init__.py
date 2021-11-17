@@ -1,9 +1,4 @@
-# from .numba import boris_numba, cohen_numba, reseat_open_numba, reseat_periodic_numba, \
-#                     deposit_rho_linear_numba, deposit_rho_quadratic_numba, deposit_rho_cubic_numba, deposit_rho_quartic_numba, \
-#                     deposit_J_linear_numba, deposit_J_quadratic_numba, deposit_J_cubic_numba, deposit_J_quartic_numba, \
-#                     interpolate_linear_numba, interpolate_quadratic_numba, interpolate_cubic_numba, interpolate_quartic_numba
-                   
-from .pusher import boris_push, cohen_push
+from .pusher import boris_push, cohen_push, vay_push
 from .reseat import reseat_open, reseat_periodic
 from .current import J1o, J2o, J3o, J4o, J1p, J2p, J3p, J4p
 from .charge import R1o, R2o, R3o, R4o, R1p, R2p, R3p, R4p
@@ -16,7 +11,7 @@ from .interp import I1o, I2o, I3o, I4o, I1p, I2p, I3p, I4p
 # 1-4: shape factor
 # open/pediodic: boundary types
 #
-# all functions of the same type (J/R/I) should take the same arguments
+# all functions of the same type (J/R/I/push) should take the same arguments
 function_dict = {
     'J1_open':J1o,                      # current deposition functions
     'J2_open':J2o,
@@ -45,6 +40,7 @@ function_dict = {
     'reseat_open':reseat_open,          # particle reseating functions
     'reseat_periodic':reseat_periodic,
     'boris':boris_push,                 # particle pushers
-    'cohen':cohen_push
+    'cohen':cohen_push,
+    'vay':vay_push
     }
 

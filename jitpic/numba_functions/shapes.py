@@ -68,3 +68,16 @@ def integrated_cubic_shape_factor(x):
         return sgn * (-x**4+8*x**3-24*x**2+32*x-4) * 0.041666666666666664
     else: # x > 2
         return sgn * 0.5
+
+@numba.njit("f8(f8)")
+def integrated_quartic_shape_factor(x):    
+    sgn = np.sign(x)
+    x = abs(x)
+    if x < 0.5:
+        return sgn * (48*x**5-200*x**3+575*x) * 0.0010416666666666667
+    elif x < 1.5:
+        return sgn * (-16*x**5+100*x**4-200*x**3+50*x**2+275*x+1.25) * 0.0020833333333333333
+    elif x < 2.5:
+        return sgn * ((2*x-5)**5 * 0.00026041666666666666 + 0.5)
+    else: # x > 2.5
+        return sgn * 0.5

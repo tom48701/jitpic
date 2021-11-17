@@ -1,1 +1,1 @@
-from .simgrid import simgrid
+from .simgrid import Simgrid

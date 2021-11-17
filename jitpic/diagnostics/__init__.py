@@ -1,1 +1,1 @@
-from .timeseries_diagnostic import timeseries_diagnostic
+from .timeseries_diagnostic import Timeseries_diagnostic

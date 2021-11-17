@@ -6,11 +6,12 @@ import numba
 # import the numba configuration
 from ..config import parallel, cache, fastmath
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)", 
+@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8)", 
             parallel=parallel, cache=cache, fastmath=fastmath)
-def cohen_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, backstep=False):
+def cohen_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N):
     """
     Cohen particle push
+    http://dx.doi.org/10.1016/j.nima.2009.03.083
     
     E        : particle E-fields
     B        : particle B-fields
@@ -60,17 +61,86 @@ def cohen_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, backstep=False):
         # update v
         v[:,i] = p[:,i] * rg[i] / m
         
-        if not backstep:
-            # update x
-            x[i] = x[i] + v[0,i] * dt
+        # update x
+        x[i] = x[i] + v[0,i] * dt
          
     return
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1)", 
+@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8)", 
             parallel=parallel, cache=cache, fastmath=fastmath)
-def boris_push( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, backstep=False):
+def vay_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N):
+    """
+    Vay particle push
+    https://doi.org/10.1063/1.2837054
+    
+    E        : particle E-fields
+    B        : particle B-fields
+    qmdt     : constant factor: 2*pi*dt*q/m
+    p        : particle momenta
+    v        : particle velocities
+    x        : particle positions
+    x_old    : previous particle position
+    rg       : particle reciprocal gammas
+    m        : particle mass
+    dt       : timestep
+    N        : number of particles
+    backstep : wether or not to push x as well as p,v (for initial setup)
+    
+    No returns neccessary as arrays are modified in-place.
+    """
+    # qmdt = 2*pi*dt*q/m
+    for i in numba.prange(N):
+
+        u = np.empty(3) # must be assigned within the loop to be private
+        
+        # tau = (pi*dt*q/m) * B
+        tau = 0.5*qmdt*B[:,i]
+        tau2 = tau[0]**2 + tau[1]**2 + tau[2]**2
+        
+        # p* = p0 + q*E + q/2*v x B
+        u[0] = p[0,i] + qmdt*E[0,i] +  (v[1,i]*tau[2] - v[2,i]*tau[1])
+        u[1] = p[1,i] + qmdt*E[1,i] +  (v[2,i]*tau[0] - v[0,i]*tau[2])
+        u[2] = p[2,i] + qmdt*E[2,i] +  (v[0,i]*tau[1] - v[1,i]*tau[0])
+
+        # t = tau/gamma1
+        # gamma1 = sqrt( sigma + sqrt(sigma^2 + (tau^2 + w^2) ) )
+        # w = dot(p*, tau)
+        # sigma = (gamma'^2 - tau^2)/2
+        # gamma' = sqrt(1 + p*^2)
+        gamma_prime = np.sqrt( 1 + u[0]**2 + u[1]**2 + u[2]**2 )
+        sigma = (gamma_prime**2 - tau2)*0.5
+        w = u[0]*tau[0] + u[1]*tau[1] + u[2]*tau[2] 
+        gamma1 = np.sqrt( sigma + np.sqrt(sigma**2 + (tau2 + w**2) ) )
+        t = tau/gamma1
+        t2 = t[0]**2 + t[1]**2 + t[2]**2
+        
+        # p1 = (p* + dot(p*,t)*t + cross(p*,t) ) / (1 + t^2)
+        pdott = u[0]*t[0] + u[1]*t[1] + u[2]*t[2]
+        p[0,i] = ( u[0] + pdott*t[0] + (u[1]*t[2] - u[2]*t[1]) ) / (1 + t2)
+        p[1,i] = ( u[1] + pdott*t[1] + (u[2]*t[0] - u[0]*t[2]) ) / (1 + t2)
+        p[2,i] = ( u[2] + pdott*t[2] + (u[0]*t[1] - u[1]*t[0]) ) / (1 + t2)
+        
+        rg[i] = 1./gamma1
+        
+        # make a note of the old positions
+        x_old[i] = x[i]
+        
+        # update v
+        v[:,i] = p[:,i] * rg[i] / m
+
+        # update x
+        x[i] = x[i] + v[0,i] * dt
+         
+    return
+
+@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8)", 
+            parallel=parallel, cache=cache, fastmath=fastmath)
+def boris_push( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N):
     """
     Boris particle push
+    
+    Boris, J. P. 1970. "Relativistic Plasma Simulation-Optimization of a Hybrid Code." 
+    In Proc. Fourth Conf. Num. Sim. Plasmas, 3–67. Naval Res. Lab., Wash., D. C.
     
     E        : particle E-fields
     B        : particle B-fields
@@ -120,8 +190,7 @@ def boris_push( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, backstep=False):
         # update v
         v[:,i] = p[:,i] * rg[i] / m
         
-        if not backstep:
-            # update x
-            x[i] = x[i] + v[0,i] * dt
+        # update x
+        x[i] = x[i] + v[0,i] * dt
          
     return

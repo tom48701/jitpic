@@ -15,6 +15,16 @@ def make_directory( dirpath, cwd=os.getcwd() ):
                 
     return
 
+def fft_data(x,y):
+    N = len(x)
+    T = (x[-1] - x[0]) /N
+    xf = np.linspace(0.0, 1.0/(2.0*T), N//2)
+    
+    yf = np.fft.fft(y)
+    yf = 2.0/len(xf) * abs(yf[:len(xf)])
+    
+    return xf, yf
+
 def default_inline_plotting_script( sim, fontsize=8 ):
         """
         Plot a figure using information from the current simulation state

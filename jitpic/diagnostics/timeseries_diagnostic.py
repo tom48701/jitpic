@@ -3,7 +3,7 @@ import numpy as np
 
 from ..utils import make_directory
 
-class timeseries_diagnostic:
+class Timeseries_diagnostic:
     def __init__(self, sim, fields, cells, buffer_size,
                  diagdir='diags', fname='timeseries_data'):
         """
@@ -43,6 +43,8 @@ class timeseries_diagnostic:
                             
             f.create_dataset( 't', shape=(0,), dtype=np.double, 
                              maxshape=(None,) )  
+            
+            f.create_dataset( 'cells', data=np.array(cells) )
             
             for field in fields:  
                 for cell in cells:

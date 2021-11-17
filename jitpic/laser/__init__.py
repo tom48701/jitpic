@@ -1,1 +1,1 @@
-from .laser import laser
+from .laser import Laser
