@@ -5,7 +5,7 @@ import jitpic
 
 setup(
    name='JitPIC',
-   version=jitpic.__version__
+   version=jitpic.__version__,
    author='Thomas Wilson',
    author_email='t.wilson@strath.ac.uk',
    packages=find_packages('.'),

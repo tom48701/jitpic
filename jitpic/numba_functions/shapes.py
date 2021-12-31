@@ -69,7 +69,7 @@ def integrated_cubic_shape_factor(x):
     else: # x > 2
         return sgn * 0.5
 
-@numba.njit("f8(f8)")
+@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
 def integrated_quartic_shape_factor(x):    
     sgn = np.sign(x)
     x = abs(x)

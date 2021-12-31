@@ -11,7 +11,7 @@ from .interp import I1o, I2o, I3o, I4o, I1p, I2p, I3p, I4p
 # 1-4: shape factor
 # open/pediodic: boundary types
 #
-# all functions of the same type (J/R/I/push) should take the same arguments
+# all functions of the same type (J/R/I/reseat/push) should take the same arguments
 function_dict = {
     'J1_open':J1o,                      # current deposition functions
     'J2_open':J2o,
