@@ -44,10 +44,10 @@ class Simulation:
         pusher         : str       : particle pusher to use
 
         """
-        # set the RNG seed for reproducability]
+        # set the RNG seed for reproducability
         self.seed = seed
         np.random.seed(seed)
-        # register the number of threads, and set the numba variable
+        # register the number of threads, and set the numba variable accordingly
         self.n_threads = n_threads
         numba.set_num_threads(n_threads)
         # register the simulation time and iteration
@@ -60,9 +60,9 @@ class Simulation:
         self.particle_shape = particle_shape
         self.boundaries = boundaries
         ## choose the correct numba functions based on simulation settings
-        # particle reseating function
+        # set the particle reseating function
         self.reseat_func = function_dict['reseat_%s'%boundaries]
-        # particle pusher function
+        # configure the particle pusher
         self.pusher = pusher
         self.particle_push_func = function_dict[pusher]            
         # set the correct associated constant factor for particle pushing
@@ -70,13 +70,13 @@ class Simulation:
             self.pushconst = np.pi 
         elif pusher in ('cohen', 'vay'):
             self.pushconst = 2*np.pi 
-        # current deposition function
+        # set the current deposition function
         self.deposit_J_func = function_dict['J%i_%s'%(particle_shape, boundaries)] 
-        # field interpolation function
+        # set the field interpolation function
         self.interpolate_func = function_dict['I%i_%s'%(particle_shape, boundaries)]
-        # charge deposition function
+        # set the charge deposition function
         self.deposit_rho_func = function_dict['R%i_%s'%(particle_shape, boundaries)]  
-        # register empty list for lasers
+        # register an empty list for lasers
         self.lasers = []
         # register empty list for particle species
         self.species = []
@@ -109,29 +109,29 @@ class Simulation:
         
         state : bool : moving window on/off
         """
-        if self.boundaries != 'open':
-            raise ValueError('Moving window must employ open boundaries')
-            
+        assert self.boundaries == 'open', 'Moving window must employ open boundaries'
+        
         self.moving_window = state
         return
     
-    def step( self, N=1 ):
+    def step( self, N=1, silent=False ):
         """
         advance the simulation by N cycles, automatically write diagnostics,
         timeseries data and images.
         
-        N : int : number of steps to perform
+        N      : int  : number of steps to perform
+        silent : bool : disable print diagnostic information during the run
         """
         # print summary information
-        print('\nJitPIC:')
-        print( 'Starting from t = %f with timestep dt = %f'%(self.t, self.dt) )
-        print( 'Grid consists of %i cells'%self.grid.Nx )
-        print( 'Simulating %i particles of shape order %i using the %s pusher'%( sum([ spec.N for spec in self.species]), self.particle_shape, self.pusher) )
-        print( 'Employing %s boundary conditions'%self.boundaries )
-        if self.moving_window:
-            print('Moving window active')
-        print( 'Using %i threads via %s'%(numba.get_num_threads(), numba.threading_layer()) )
-        print( 'performing %i PIC cycles from from step %i\n'%(N, self.iter) )
+        if not silent:
+            print( 'Starting from t = %f with timestep dt = %f'%(self.t, self.dt) )
+            print( 'Grid consists of %i cells'%self.grid.Nx )
+            print( 'Simulating %i particles of shape order %i using the %s pusher'%( sum([ spec.N for spec in self.species]), self.particle_shape, self.pusher) )
+            print( 'Employing %s boundary conditions'%self.boundaries )
+            if self.moving_window:
+                print('Moving window active')
+            print( 'Using %i threads via %s'%(numba.get_num_threads(), numba.threading_layer()) )
+            print( 'performing %i PIC cycles from from step %i\n'%(N, self.iter) )
         # timing information
         t0 = time.time()
         t1 = t0
@@ -142,8 +142,9 @@ class Simulation:
                 self.apply_initial_offset_to_pv()
             ## periodic diagnostic operations
             if self.diag_period > 0 and self.iter%self.diag_period == 0:
-                print('Writing diagnostics at step %i (t = %.1f)'%(self.iter, self.t))
-                print('%.1f (%.1f) seconds elapsed (since last write)\n'%(time.time()-t0, time.time()-t1) )
+                if not silent:
+                    print('Writing diagnostics at step %i (t = %.1f)'%(self.iter, self.t))
+                    print('%.1f (%.1f) seconds elapsed (since last write)\n'%(time.time()-t0, time.time()-t1) )
                 # register split time and write diagnostics
                 t1 = time.time()   
                 self.write_diagnostics()
@@ -151,7 +152,7 @@ class Simulation:
                 if self.inline_plotting_script is not None:
                     self.plot_result(imagedir=self.imagedir)  
                 # append to the timeseries diagnostics
-                if self.tsdiag is not None and self.iter > 0:
+                if self.tsdiag is not None and self.iter > self.tsdiag.istart:
                     self.tsdiag.write_data(self)
             ## every-step operations
             # gather timeseries data
@@ -277,7 +278,7 @@ class Simulation:
         w = spec.w[state]
         x = spec.x[state]
         
-        # calculate the index splits for current deposition - assume masked arrays
+        # calculate the index splits for charge deposition - assume masked arrays
         indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
         indices = np.array(indices)
             
@@ -376,7 +377,7 @@ class Simulation:
     def push_fields(self):
         """
         advance the fields in time using a numerical-dispersion free along x 
-        (NDFX) field solver, this requires that dx == dt.
+        (NDFX) field solver. This requires that dx == dt.
         """
         
         grid = self.grid
@@ -436,16 +437,13 @@ class Simulation:
         """
         Reseat particles in new cells, look for and disable any particles 
         that got pushed off the grid.
-        """
-        
+        """ 
         for spec in self.species:
-            
-            
+
             self.reseat_func(spec.N, spec.x, spec.state, spec.l, spec.r,
                          self.grid.x0, self.grid.x1, self.grid.dx, self.grid.idx, self.grid.Nx)
             
             spec.N_alive = spec.state.sum()
-            
         return
         
     def add_laser(self, a0, x0, ctau, lambda_0=1., p=0, d=1, theta_pol=0., 
@@ -500,9 +498,7 @@ class Simulation:
                         
             self.grid.E[:,laser.antenna_index] += E_laser
             self.grid.B[:,laser.antenna_index] += B_laser
-        
         return
-    
     
     def write_diagnostics(self):
         """ 
@@ -510,7 +506,6 @@ class Simulation:
         
         diagdir : str : folder to write diagnostics to
         """
-
         make_directory(self.diagdir)
             
         fname = '%s/diags-%.8i.h5'%(self.diagdir, self.iter)

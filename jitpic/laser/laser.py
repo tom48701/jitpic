@@ -6,7 +6,7 @@ class Laser:
     """
     def __init__(self, a0, lambda_0=1., p=0, x0=0., ctau=1., d=1, theta_pol=0., cep=0.,
                  clip=None, method='box', x_antenna=0., 
-                 t_stop=np.finfo(np.double).max, t0=0):
+                 t_stop=np.inf, t0=0):
         """
         Initialise a laser object
         

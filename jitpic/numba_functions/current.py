@@ -14,7 +14,7 @@ from ..config import parallel, cache, fastmath
 def J1o( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
-    Current deposition for linear particle shapes with periodic boundaries
+    Current deposition for linear particle shapes with open boundaries
     
     xs        : current particle positions
     x_olds    : old particle positions
@@ -71,7 +71,7 @@ def J1o( xs, x_olds, ws, vys, vzs, l_olds, J,
 def J2o( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
-    Current deposition for quadratic particle shapes with periodic boundaries
+    Current deposition for quadratic particle shapes with open boundaries
     
     xs        : current particle positions
     x_olds    : old particle positions
@@ -134,7 +134,7 @@ def J2o( xs, x_olds, ws, vys, vzs, l_olds, J,
 def J3o( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
-    Current deposition for cubic particle shapes with periodic boundaries
+    Current deposition for cubic particle shapes with open boundaries
         
     xs        : current particle positions
     x_olds    : old particle positions
@@ -197,7 +197,7 @@ def J3o( xs, x_olds, ws, vys, vzs, l_olds, J,
 def J4o( xs, x_olds, ws, vys, vzs, l_olds, J,
                    n_threads, indices, q, xidx ):
     """
-    Current deposition for quartic particle shapes with periodic boundaries
+    Current deposition for quartic particle shapes with open boundaries
         
     xs        : current particle positions
     x_olds    : old particle positions
