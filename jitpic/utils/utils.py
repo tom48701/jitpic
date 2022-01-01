@@ -1,8 +1,15 @@
 import os
+from numba import cuda
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 
+def to_device(arr):
+    return cuda.to_device(arr)
+    
+def from_device(d_arr):
+    return d_arr.copy_to_host()
+    
 def make_directory( dirpath, cwd=os.getcwd() ):
 
     cwd = Path(cwd)

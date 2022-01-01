@@ -1,4 +1,5 @@
 import numpy as np
+from ..utils import to_device, from_device
 
 def default_profile(x):
     return np.ones_like(x)
@@ -75,18 +76,18 @@ class Species:
             
         w = np.full(N, self.n/self.ppc) * self.dfunc(x) 
 
-        self.w = w[w != 0]
-        self.x = x[w != 0]
-        self.x_old = np.zeros_like(self.x)
+        self._w = w[w != 0]
+        self._x = x[w != 0]
+        self._x_old = np.zeros_like(self._x)
         
-        self.N = len(self.x)
+        self.N = len(self._x)
         self.N0 = self.N
 
-        self.E = np.zeros((3,self.N))
-        self.B = np.zeros((3,self.N))     
+        self._E = np.zeros((3,self.N))
+        self._B = np.zeros((3,self.N))     
         
-        self.state = np.full(self.N, True, dtype=bool)
-        self.N_alive = self.N # all particles should be alive at first
+        self._state = np.full(self.N, True, dtype=bool)
+        self.N_alive = np.full(1, self.N) # all particles should be alive at first
  
         p = np.zeros((3,self.N))       
 
@@ -94,20 +95,32 @@ class Species:
         p[0,:] = self.p_flow[0] * np.ones(self.N) + np.random.normal(0., self.p_th_reduced, self.N) 
         p[1,:] = self.p_flow[1] * np.ones(self.N) + np.random.normal(0., self.p_th_reduced, self.N) 
         p[2,:] = self.p_flow[2] * np.ones(self.N) + np.random.normal(0., self.p_th_reduced, self.N) 
-        self.p = p
+        self._p = p
         
-        self.rg = 1./np.sqrt(1. + (self.p**2).sum(axis=0)/self.m**2)  # reciprocal gamma factor      
+        self._rg = 1./np.sqrt(1. + (self._p**2).sum(axis=0)/self.m**2)  # reciprocal gamma factor      
         
-        self.v = np.zeros_like(self.p)
-        self.v[:,:] = self.p[:,:] * self.rg / self.m
+        self._v = np.zeros_like(self._p)
+        self._v[:,:] = self._p[:,:] * self._rg / self.m
         
         # setup array to contain the left and right cell indices
-        self.l = np.zeros(self.N, dtype=np.dtype('u4'))
-        self.r = np.zeros(self.N, dtype=np.dtype('u4'))
-        self.l[:] = np.floor((self.x-grid.x0)/grid.dx) # left cells
+        self._l = np.zeros(self.N, dtype=np.dtype('u4'))
+        self._r = np.zeros(self.N, dtype=np.dtype('u4'))
+        self._l[:] = np.floor((self._x-grid.x0)/grid.dx) # left cells
         
-        self.r[:] = np.mod(self.l+1, grid.Nx) # mod should only affect periodic mode
-
+        self._r[:] = np.mod(self._l+1, grid.Nx) # mod should only affect periodic mode
+        
+        ####### copy all arrays to device #######
+        self.x = to_device( self._x )
+        self.x_old = to_device( self._x_old )
+        self.w = to_device( self._w )
+        self.E = to_device( self._E )
+        self.B = to_device( self._B )
+        self.state = to_device( self._state )
+        self.rg = to_device( self._rg )
+        self.p = to_device( self._p )
+        self.v = to_device( self._v )
+        self.l = to_device( self._l )
+        self.r = to_device( self._r )
         return
     
     def revert_x(self):
@@ -115,7 +128,8 @@ class Species:
         Overwrite current particle positions with their previous positions.
         Used only for the initial p,v,J offset.
         """
-        self.x[:] = self.x_old[:]
+        x = from_device( self.x_old )
+        self.x = to_device( x )
         return
         
     def inject_particles(self, grid):
@@ -244,24 +258,32 @@ class Species:
     
     def get_x(self):
         """Return only living particle positions"""
-        return self.x[self.state]
+        state = from_device( self.state )
+        return from_device(self.x)[state]
     
     def get_p(self):
         """Return only living particle momenta"""
-        return self.p[:,self.state]
+        state = from_device( self.state )
+        return from_device(self.p)[:,state]
     
     def get_gamma(self):
         """Return only living particle gamma factors"""
-        return 1./self.rg[self.state]
+        state = from_device( self.state )
+        return 1./from_device(self.rg)[state]
     
     def get_w(self):
         """Return only living particle weights"""
-        return self.w[self.state]
+        state = from_device( self.state )
+        return from_device(self.w)[state]
     
     def get_v(self):
         """Return only living particle velocities """
-        return self.v[:,self.state]
+        state = from_device( self.state )
+        return from_device(self.v)[:,state]
 
     def get_KE(self):
         """Return only living particle KEs"""
-        return (1./self.rg[self.state]  - 1.)*self.w[self.state] 
+        state = from_device( self.state )
+        rg = from_device(self.rg)
+        w = from_device(self.w)
+        return (1./rg[state]  - 1.)*w[state] 

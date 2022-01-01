@@ -75,8 +75,6 @@ class Laser:
         B : Magnetic fields, shape: (3,len(x))
         """
         
-        #x = grid.x
-        
         #phase and envelope
         phi = self.phase( x, 0 )
         psi = self.envelope( x, 0 )

@@ -1,4 +1,5 @@
 import numba, time, h5py, gc
+from numba import cuda
 import numpy as np
 import matplotlib.pyplot as plt 
 # import JitPIC classes
@@ -8,9 +9,9 @@ from .laser import Laser
 from .diagnostics import Timeseries_diagnostic
 from .external_fields import External_field
 # import JitPIC helper functions
-from .utils import make_directory, default_inline_plotting_script
+from .utils import make_directory, default_inline_plotting_script, from_device, to_device
 # import numba function dictionary (see: numba_functions/__init__.py)
-from .numba_functions import function_dict
+from .numba_functions import function_dict, NDFX_solver_1, NDFX_solver_2, NDFX_solver_3
 
 class Simulation:
     """
@@ -20,7 +21,7 @@ class Simulation:
     def __init__(self, x0, x1, Nx, species=[], 
                  particle_shape=1, diag_period=0, 
                  plotfunc=default_inline_plotting_script,
-                 n_threads=numba.get_num_threads(), seed=0,
+                 tpb=128, seed=0,
                  resize_period=100, boundaries='open',
                  pusher='cohen', diagdir='diags', imagedir='images'):
         """ 
@@ -37,33 +38,33 @@ class Simulation:
                                      plotfunc should take the simulation object
                                      as an argument, and return a matplotlib
                                      figure object.
-        n_threads      : int       : number of CPU threads to use
+        n_threads      : int       : number of GPU threads per block
         seed           : int       : set the RNG seed
         resize_period  : int       : interval between particle buffer resizing
         boundaries     : str       : boundary conditions; 'open' or 'periodic'
         pusher         : str       : particle pusher to use
 
         """
-        # set the RNG seed for reproducability]
+        # set the RNG seed for reproducability
         self.seed = seed
         np.random.seed(seed)
         # register the number of threads, and set the numba variable accordingly
-        self.n_threads = n_threads
-        numba.set_num_threads(n_threads)
+        self.tpb = tpb
+        #numba.set_num_threads(n_threads)
         # register the simulation time and iteration
         self.t = 0.
         self.iter = 0
         # initialise the simulation grid and register the timestep (dt == dx)
-        self.grid = Simgrid(x0, x1, Nx, self.n_threads, boundaries, particle_shape=particle_shape)
+        self.grid = Simgrid(x0, x1, Nx, boundaries, particle_shape=particle_shape)
         self.dt = self.grid.dx
         # register the particle shape factor and boundary conditions
-        self.particle_shape = particle_shape
-        self.boundaries = boundaries
+        self.particle_shape = 4 #particle_shape
+        self.boundaries = 'open' #boundaries
         ## choose the correct numba functions based on simulation settings
         # set the particle reseating function
         self.reseat_func = function_dict['reseat_%s'%boundaries]
         # configure the particle pusher
-        self.pusher = pusher
+        self.pusher = 'cohen' #pusher
         self.particle_push_func = function_dict[pusher]            
         # set the correct associated constant factor for particle pushing
         if pusher == 'boris':
@@ -124,6 +125,9 @@ class Simulation:
         """
         # print summary information
         if not silent:
+            print('!EXPERIMENTAL! CUDA IMPLEMENTATION:')
+            print( cuda.detect() )
+            print( 'Using %i threads per block'%self.tpb )
             print( 'Starting from t = %f with timestep dt = %f'%(self.t, self.dt) )
             print( 'Grid consists of %i cells'%self.grid.Nx )
             print( 'Simulating %i particles of shape order %i using the %s pusher'%( sum([ spec.N for spec in self.species]), self.particle_shape, self.pusher) )
@@ -139,6 +143,7 @@ class Simulation:
         for i in range(N):
             # p,v must be offset to n=-1/2 before the first step
             if self.iter == 0:
+                #print('offsetting')
                 self.apply_initial_offset_to_pv()
             ## periodic diagnostic operations
             if self.diag_period > 0 and self.iter%self.diag_period == 0:
@@ -166,12 +171,16 @@ class Simulation:
             # E,B,x at n
             # J,p,v at n-1/2
             # interpolate fields onto particles
+            #print('applying fields')
             self.apply_fields_to_particles()
             # push p,v to n+1/2, x to n+1
+            #print('pushing particles')
             self.push_particles( self.dt ) 
             # push J to n+1/2 
+            #print('depositing current')
             self.deposit_current()  
             #push E,B to n+1
+            #print('pushing fields')
             self.push_fields() 
             ## post-cycle operations
             # advance the moving window
@@ -184,7 +193,8 @@ class Simulation:
                 if self.iter%self.resize_period == 0:
                     for spec in self.species:
                         spec.compact_particle_arrays()    
-            # reseat and mask particles    
+            # reseat and mask particles  
+            #print('reseating particles')
             self.reseat_particles()
             # advance simulation time and iteration
             self.t += self.dt
@@ -234,29 +244,29 @@ class Simulation:
         """
         
         rho = self.grid.rho
-        rho_2D = self.grid.rho_2D
         
+        # zeroing the array can be done without transfers
         rho[:] = 0.
-        rho_2D[:,:] = 0.
         
         for spec in self.species:
             state = spec.state
-            l = spec.l[state]
-            r = spec.r[state]
-            w = spec.w[state]
-            x = spec.x[state]
+            l = spec.l
+            r = spec.r
+            w = spec.w
+            x = spec.x
             
             # calculate the index splits for current deposition - assume masked arrays
-            indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
-            indices = np.array(indices)
+            #indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
+            #indices = np.array(indices)
             
-            self.deposit_rho_func(spec.N_alive, self.n_threads, 
-                                 x, self.grid.idx, spec.q*w, rho_2D, l, r,
-                                 indices, self.grid.x, self.grid.Nx)
+            # blocks per grid
+            bpg = (x.size + (self.tpb - 1)) // self.tpb
+
+            self.deposit_rho_func[bpg, self.tpb](spec.N_alive[0], x, self.grid.idx, spec.q, w, 
+                                  rho, l, r, self.grid.x, self.grid.Nx, state)
             
-        rho[:] = rho_2D.sum(axis=0)
         
-        return rho
+        return from_device(rho)
 
     def deposit_single_species(self, spec):
         """ 
@@ -267,28 +277,30 @@ class Simulation:
         """    
 
         rho = self.grid.rho
-        rho_2D = self.grid.rho_2D
+        #rho_2D = self.grid.rho_2D
         
         rho[:] = 0.
-        rho_2D[:,:] = 0.
+        #rho_2D[:,:] = 0.
         
         state = spec.state
-        l = spec.l[state]
-        r = spec.r[state]
-        w = spec.w[state]
-        x = spec.x[state]
+        l = spec.l
+        r = spec.r
+        w = spec.w
+        x = spec.x
         
         # calculate the index splits for charge deposition - assume masked arrays
-        indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
-        indices = np.array(indices)
+        #indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
+        #indices = np.array(indices)
+        
+        # blocks per grid
+        bpg = (x.size + (self.tpb - 1)) // self.tpb
             
-        self.deposit_rho_func(spec.N_alive, self.n_threads, 
-                             x, self.grid.idx, spec.q*w, rho_2D, l, r,
-                             indices, self.grid.x, self.grid.Nx)
+        self.deposit_rho_func[bpg, self.tpb](spec.N_alive[0],  x, self.grid.idx, spec.q, w, 
+                                  rho, l, r, self.grid.x, self.grid.Nx, state)
         
-        rho[:] = rho_2D.sum(axis=0)
+        #rho[:] = rho_2D.sum(axis=0)
         
-        return rho
+        return from_device(rho)
     
     def apply_initial_offset_to_pv(self):
         """
@@ -314,36 +326,34 @@ class Simulation:
         nthreads : int   : number of threads
         """
         
-        J = self.grid.J
-        J_3D = self.grid.J_3D
+        #J = self.grid.J
+        #J_3D = self.grid.J_3D
         
-        J_3D[:,:,:] = 0.
+        self.grid.J[:,:] = 0.
         
         idx = self.grid.idx
-        xidx = self.grid.x * idx
+        xidx = self.grid.x 
             
         for spec in self.species:
             
             state = spec.state
             
             # calculate the index splits for current deposition - assume masked arrays
-            indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
-            indices = np.array(indices)
+            #indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
+            #indices = np.array(indices)
             
             # mask the arrays so lengths match
-            xs = spec.x[state] * idx
-            x_olds = spec.x_old[state] * idx
-            ws = spec.w[state]
-            vys = spec.v[1][state]
-            vzs = spec.v[2][state]
-            l_olds = np.floor((x_olds-self.grid.x0*idx)).astype(int)
+            xs = spec.x
+            x_olds = spec.x_old
+            ws = spec.w
+            vs = spec.v
+            #l_olds = np.floor((x_olds-self.grid.x0*idx)).astype(int)
             
-            self.deposit_J_func( xs, x_olds, ws, vys, vzs, l_olds, J_3D,
-                          self.n_threads, indices, spec.q, xidx )
+            # blocks per grid
+            bpg = (xs.size + (self.tpb - 1)) // self.tpb
+            
+            self.deposit_J_func[bpg, self.tpb]( xs, x_olds, ws, vs, self.grid.J, spec.q, xidx, idx, self.grid.x0, state )
 
-        # reduce the current to 2D
-        J[:,:] = J_3D.sum(axis=0)
-        
         return
 
     def add_external_field(self, field, component, magnitude, function=None):
@@ -367,11 +377,13 @@ class Simulation:
               
         for spec in self.species:
             
-            self.interpolate_func(self.grid.E,self.grid.B,
+            # blocks per grid
+            bpg = (spec.x.size + (self.tpb - 1)) // self.tpb
+
+            self.interpolate_func[bpg, self.tpb](self.grid.E, self.grid.B,
                               spec.E, spec.B,
                               spec.l, spec.r, 
-                              (spec.x - self.grid.x0)*self.grid.idx,
-                              spec.N )
+                              spec.x, spec.N, self.grid.x0, self.grid.idx)
         return 
     
     def push_fields(self):
@@ -380,26 +392,47 @@ class Simulation:
         (NDFX) field solver. This requires that dx == dt.
         """
         
-        grid = self.grid
+        pidt = np.pi*self.dt 
+        Nx = self.grid.Nx
+        E = self.grid.E
+        B = self.grid.B
+        J = self.grid.J
+        f_shift = self.grid.f_shift
         
-        pidt = np.pi*self.dt
+        PR = self.grid.PR
+        PL = self.grid.PL
+        SR = self.grid.SR
+        SL = self.grid.SL
+        PRs = self.grid.PRs
+        PLs = self.grid.PLs
+        SRs = self.grid.SRs
+        SLs = self.grid.SLs   
+        # blocks per grid
+        bpg = (Nx + (self.tpb - 1)) // self.tpb
         
-        grid.E[0,:grid.NEB] -= 2. * pidt * grid.J[0,:grid.NJ]
+        NDFX_solver_1[bpg, self.tpb](pidt, Nx, E, B, J, PR,PL,SR,SL,PRs,PLs,SRs,SLs, f_shift)
+        NDFX_solver_2[bpg, self.tpb](pidt, Nx, E, B, J, PR,PL,SR,SL,PRs,PLs,SRs,SLs, f_shift)
+        NDFX_solver_3[bpg, self.tpb](pidt, Nx, E, B, J, PR,PL,SR,SL,PRs,PLs,SRs,SLs, f_shift)
+        # grid = self.grid
+        
+        # pidt = np.pi*self.dt
+        
+        # grid.E[0,:grid.NEB] -= 2. * pidt * grid.J[0,:grid.NJ]
              
-        PR = (grid.E[1] + grid.B[2]) * .5
-        PL = (grid.E[1] - grid.B[2]) * .5
-        SR = (grid.E[2] - grid.B[1]) * .5
-        SL = (grid.E[2] + grid.B[1]) * .5
+        # PR = (grid.E[1] + grid.B[2]) * .5
+        # PL = (grid.E[1] - grid.B[2]) * .5
+        # SR = (grid.E[2] - grid.B[1]) * .5
+        # SL = (grid.E[2] + grid.B[1]) * .5
    
-        PR[grid.f_shift] = PR[:grid.NEB] - pidt * grid.J[1,:grid.NJ]
-        PL[:grid.NEB] = PL[grid.f_shift] - pidt * grid.J[1,:grid.NJ]
-        SR[grid.f_shift] = SR[:grid.NEB] - pidt * grid.J[2,:grid.NJ]
-        SL[:grid.NEB] = SL[grid.f_shift] - pidt * grid.J[2,:grid.NJ]
+        # PR[grid.f_shift] = PR[:grid.NEB] - pidt * grid.J[1,:grid.NJ]
+        # PL[:grid.NEB] = PL[grid.f_shift] - pidt * grid.J[1,:grid.NJ]
+        # SR[grid.f_shift] = SR[:grid.NEB] - pidt * grid.J[2,:grid.NJ]
+        # SL[:grid.NEB] = SL[grid.f_shift] - pidt * grid.J[2,:grid.NJ]
         
-        grid.E[1,:grid.NEB] = PR[:grid.NEB] + PL[:grid.NEB]
-        grid.B[2,:grid.NEB] = PR[:grid.NEB] - PL[:grid.NEB]
-        grid.E[2,:grid.NEB] = SL[:grid.NEB] + SR[:grid.NEB]
-        grid.B[1,:grid.NEB] = SL[:grid.NEB] - SR[:grid.NEB]
+        # grid.E[1,:grid.NEB] = PR[:grid.NEB] + PL[:grid.NEB]
+        # grid.B[2,:grid.NEB] = PR[:grid.NEB] - PL[:grid.NEB]
+        # grid.E[2,:grid.NEB] = SL[:grid.NEB] + SR[:grid.NEB]
+        # grid.B[1,:grid.NEB] = SL[:grid.NEB] - SR[:grid.NEB]
         
         return  
 
@@ -427,8 +460,11 @@ class Simulation:
                         E = ext_field.add_field(x, self.t, E)
                     else:
                         B = ext_field.add_field(x, self.t, B)
-
-            self.particle_push_func( E, B, dt*self.pushconst*spec.qm, spec.p, spec.v, x, spec.x_old, 
+                        
+            # blocks per grid
+            bpg = (x.size + (self.tpb - 1)) // self.tpb
+            
+            self.particle_push_func[bpg, self.tpb]( E, B, dt*self.pushconst*spec.qm, spec.p, spec.v, x, spec.x_old, 
                                     spec.rg, spec.m, dt, spec.N) 
                       
         return
@@ -439,11 +475,14 @@ class Simulation:
         that got pushed off the grid.
         """ 
         for spec in self.species:
-
-            self.reseat_func(spec.N, spec.x, spec.state, spec.l, spec.r,
-                         self.grid.x0, self.grid.x1, self.grid.dx, self.grid.idx, self.grid.Nx)
             
-            spec.N_alive = spec.state.sum()
+            # blocks per grid
+            bpg = (spec.x.size + (self.tpb - 1)) // self.tpb
+            
+            self.reseat_func[bpg, self.tpb](spec.N, spec.x, spec.state, spec.l, spec.r,
+                         self.grid.x0, self.grid.x1, self.grid.dx, self.grid.idx, self.grid.Nx, spec.N_alive)
+            
+            #spec.N_alive = spec.state.sum()
         return
         
     def add_laser(self, a0, x0, ctau, lambda_0=1., p=0, d=1, theta_pol=0., 
@@ -478,10 +517,22 @@ class Simulation:
         self.lasers.append(new_laser)
         
         if new_laser.method == 'box':
-            E_laser, B_laser = new_laser.box_fields( self.grid.x )
+            E_laser, B_laser = new_laser.box_fields( from_device(self.grid.x) )
             
-            self.grid.E[:,:self.grid.NEB] += E_laser
-            self.grid.B[:,:self.grid.NEB] += B_laser
+            grid_E = from_device(self.grid.E)[:,:self.grid.NEB]
+            grid_B = from_device(self.grid.B)[:,:self.grid.NEB] 
+            
+            grid_E[:,:] += E_laser[:,:]
+            grid_B[:,:] += B_laser[:,:]
+            
+            grid_E = np.pad( grid_E, ((0,0),(0,-self.grid.NEB)), 'constant')
+            grid_B = np.pad( grid_B, ((0,0),(0,-self.grid.NEB)), 'constant')
+            
+            self.grid.E = to_device(grid_E)
+            self.grid.B = to_device(grid_B)
+            
+            #self.grid.E[:,:self.grid.NEB] += E_laser
+            #self.grid.B[:,:self.grid.NEB] += B_laser
             
         elif new_laser.method == 'antenna':
             self.has_antennas = True
@@ -522,7 +573,7 @@ class Simulation:
             B = self.grid.get_field('B')
             J = self.grid.get_field('J')
             
-            f.create_dataset('x', data=self.grid.x)
+            f.create_dataset('x', data=self.grid.get_x() )
             
             f.create_dataset('Ex', data=E[0] )
             f.create_dataset('Ey', data=E[1] )
