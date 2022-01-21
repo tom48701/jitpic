@@ -163,6 +163,7 @@ class Simulation:
                 if laser.is_antenna:
                     self.inject_antenna_fields(laser)     
             ## main PIC cycle
+            #print(self.iter)
             # E,B,x at n
             # J,p,v at n-1/2
             # interpolate fields onto particles
@@ -181,7 +182,7 @@ class Simulation:
                 for spec in self.species:
                     spec.inject_particles(self.grid)
                 # periodically clean up dead particles
-                if self.iter%self.resize_period == 0:
+                if self.resize_period > 0 and self.iter%self.resize_period == 0:
                     for spec in self.species:
                         spec.compact_particle_arrays()    
             # reseat and mask particles    
@@ -232,31 +233,23 @@ class Simulation:
         Deposit the total charge density on the grid.
         For diagnostics only!
         """
-        
-        rho = self.grid.rho
-        rho_2D = self.grid.rho_2D
-        
-        rho[:] = 0.
-        rho_2D[:,:] = 0.
+        grid = self.grid
+        grid.rho_2D[:,:] = 0.
         
         for spec in self.species:
-            state = spec.state
-            l = spec.l[state]
-            r = spec.r[state]
-            w = spec.w[state]
-            x = spec.x[state]
-            
+
             # calculate the index splits for current deposition - assume masked arrays
-            indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
+            indices = [ i*spec.N//self.n_threads for i in range(self.n_threads)]+[spec.N-1] 
             indices = np.array(indices)
             
-            self.deposit_rho_func(spec.N_alive, self.n_threads, 
-                                 x, self.grid.idx, spec.q*w, rho_2D, l, r,
-                                 indices, self.grid.x, self.grid.Nx)
+            self.deposit_rho_func(self.n_threads, spec.x, grid.idx, 
+                                  spec.q*spec.w, grid.rho_2D, 
+                                  spec.l, spec.r, spec.state,
+                                  indices, grid.x, grid.Nx)
             
-        rho[:] = rho_2D.sum(axis=0)
+        grid.rho[:] = grid.rho_2D.sum(axis=0)
         
-        return rho
+        return grid.rho
 
     def deposit_single_species(self, spec):
         """ 
@@ -265,30 +258,21 @@ class Simulation:
         
         spec  : species : the species to deposit
         """    
-
-        rho = self.grid.rho
-        rho_2D = self.grid.rho_2D
-        
-        rho[:] = 0.
-        rho_2D[:,:] = 0.
-        
-        state = spec.state
-        l = spec.l[state]
-        r = spec.r[state]
-        w = spec.w[state]
-        x = spec.x[state]
+        grid = self.grid
+        grid.rho_2D[:,:] = 0.
         
         # calculate the index splits for charge deposition - assume masked arrays
-        indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
+        indices = [ i*spec.N//self.n_threads for i in range(self.n_threads)]+[spec.N-1] 
         indices = np.array(indices)
-            
-        self.deposit_rho_func(spec.N_alive, self.n_threads, 
-                             x, self.grid.idx, spec.q*w, rho_2D, l, r,
-                             indices, self.grid.x, self.grid.Nx)
         
-        rho[:] = rho_2D.sum(axis=0)
+        self.deposit_rho_func(self.n_threads, spec.x, grid.idx, 
+                              spec.q*spec.w, grid.rho_2D, 
+                              spec.l, spec.r, spec.state,
+                              indices, grid.x, grid.Nx)
         
-        return rho
+        grid.rho[:] = grid.rho_2D.sum(axis=0)
+        
+        return grid.rho
     
     def apply_initial_offset_to_pv(self):
         """
@@ -310,39 +294,22 @@ class Simulation:
         then performs the current deposition for each thread individually. 
         Finally, the contributions from each thread are reduced in serial to
         avoid the race condition.
-        
-        nthreads : int   : number of threads
         """
+        grid = self.grid
+        # zero the current
+        grid.J_3D[:,:,:] = 0.
         
-        J = self.grid.J
-        J_3D = self.grid.J_3D
-        
-        J_3D[:,:,:] = 0.
-        
-        idx = self.grid.idx
-        xidx = self.grid.x * idx
-            
         for spec in self.species:
-            
-            state = spec.state
-            
-            # calculate the index splits for current deposition - assume masked arrays
-            indices = [ i*spec.N_alive//self.n_threads for i in range(self.n_threads)]+[spec.N_alive-1] 
+            # calculate the index splits for current deposition 
+            indices = [ i*spec.N//self.n_threads for i in range(self.n_threads)]+[spec.N-1] 
             indices = np.array(indices)
-            
-            # mask the arrays so lengths match
-            xs = spec.x[state] * idx
-            x_olds = spec.x_old[state] * idx
-            ws = spec.w[state]
-            vys = spec.v[1][state]
-            vzs = spec.v[2][state]
-            l_olds = np.floor((x_olds-self.grid.x0*idx)).astype(int)
-            
-            self.deposit_J_func( xs, x_olds, ws, vys, vzs, l_olds, J_3D,
-                          self.n_threads, indices, spec.q, xidx )
+    
+            self.deposit_J_func( spec.x, spec.x_old, spec.w, spec.v, grid.J_3D,
+                          self.n_threads, indices, spec.q, grid.x,
+                          spec.state, grid.idx, grid.x0*grid.idx)
 
         # reduce the current to 2D
-        J[:,:] = J_3D.sum(axis=0)
+        grid.J[:,:] = grid.J_3D.sum(axis=0)
         
         return
 
@@ -471,7 +438,7 @@ class Simulation:
             x_antenna = self.grid.x0
             
         new_laser = Laser(a0, lambda_0=lambda_0, p=p, x0=x0, ctau=ctau, d=d, 
-                          theta_pol=theta_pol, clip=clip,
+                          theta_pol=theta_pol, clip=clip, cep=cep,
                           method=method, x_antenna=x_antenna,
                           t_stop=t_stop, t0=self.t)
         

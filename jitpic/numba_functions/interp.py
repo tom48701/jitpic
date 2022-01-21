@@ -2,7 +2,6 @@
 This module contains interpolation functions
 """
 import numba
-
 from .shapes import quadratic_shape_factor, cubic_shape_factor, quartic_shape_factor
 # import the numba configuration
 from ..config import parallel, cache, fastmath
@@ -54,15 +53,20 @@ def I2o(Eg,Bg, Es,Bs, l,r, x, N):
 
         xi = x[i] - l[i]
         
-        Es[:,i] = Eg[:,l[i]-1]*quadratic_shape_factor(   xi+1 ) + \
-                  Eg[:,l[i]  ]*quadratic_shape_factor(   xi   ) + \
-                  Eg[:,r[i]  ]*quadratic_shape_factor( 1-xi   ) + \
-                  Eg[:,r[i]+1]*quadratic_shape_factor( 2-xi   ) 
+        lm1 = quadratic_shape_factor(   xi+1 )
+        L   = quadratic_shape_factor(   xi   )
+        R   = quadratic_shape_factor( 1-xi   )
+        rp1 = quadratic_shape_factor( 2-xi   )
+        
+        Es[:,i] = Eg[:,l[i]-1]*lm1 + \
+                  Eg[:,l[i]  ]*L   + \
+                  Eg[:,r[i]  ]*R   + \
+                  Eg[:,r[i]+1]*rp1
                   
-        Bs[:,i] = Bg[:,l[i]-1]*quadratic_shape_factor(   xi+1 ) + \
-                  Bg[:,l[i]  ]*quadratic_shape_factor(   xi   ) + \
-                  Bg[:,r[i]  ]*quadratic_shape_factor( 1-xi   ) + \
-                  Bg[:,r[i]+1]*quadratic_shape_factor( 2-xi   ) 
+        Bs[:,i] = Bg[:,l[i]-1]*lm1 + \
+                  Bg[:,l[i]  ]*L   + \
+                  Bg[:,r[i]  ]*R   + \
+                  Bg[:,r[i]+1]*rp1 
 
     return
 
@@ -86,16 +90,21 @@ def I3o(Eg,Bg, Es,Bs, l,r, x, N):
     for i in numba.prange(N):
 
         xi = x[i] - l[i]
+        
+        lm1 = cubic_shape_factor(   xi+1 )
+        L   = cubic_shape_factor(   xi   )
+        R   = cubic_shape_factor( 1-xi   )
+        rp1 = cubic_shape_factor( 2-xi   )
                 
-        Es[:,i] = Eg[:,l[i]-1]*cubic_shape_factor(   xi+1 ) + \
-                  Eg[:,l[i]  ]*cubic_shape_factor(   xi   ) + \
-                  Eg[:,r[i]  ]*cubic_shape_factor( 1-xi   ) + \
-                  Eg[:,r[i]+1]*cubic_shape_factor( 2-xi   ) 
-   
-        Bs[:,i] = Bg[:,l[i]-1]*cubic_shape_factor(   xi+1 ) + \
-                  Bg[:,l[i]  ]*cubic_shape_factor(   xi   ) + \
-                  Bg[:,r[i]  ]*cubic_shape_factor( 1-xi   ) + \
-                  Bg[:,r[i]+1]*cubic_shape_factor( 2-xi   ) 
+        Es[:,i] = Eg[:,l[i]-1]*lm1 + \
+                  Eg[:,l[i]  ]*L   + \
+                  Eg[:,r[i]  ]*R   + \
+                  Eg[:,r[i]+1]*rp1
+                  
+        Bs[:,i] = Bg[:,l[i]-1]*lm1 + \
+                  Bg[:,l[i]  ]*L   + \
+                  Bg[:,r[i]  ]*R   + \
+                  Bg[:,r[i]+1]*rp1 
                   
     return
 
@@ -120,19 +129,26 @@ def I4o(Eg,Bg, Es,Bs, l,r, x, N):
 
         xi = x[i] - l[i]
 
-        Es[:,i] = Eg[:,l[i]-2]*quartic_shape_factor(   xi+2 ) + \
-                  Eg[:,l[i]-1]*quartic_shape_factor(   xi+1 ) + \
-                  Eg[:,l[i]  ]*quartic_shape_factor(   xi   ) + \
-                  Eg[:,r[i]  ]*quartic_shape_factor( 1-xi   ) + \
-                  Eg[:,r[i]+1]*quartic_shape_factor( 2-xi   ) + \
-                  Eg[:,r[i]+2]*quartic_shape_factor( 3-xi   ) 
+        lm2 = quartic_shape_factor(   xi+2 )
+        lm1 = quartic_shape_factor(   xi+1 )
+        L   = quartic_shape_factor(   xi   )
+        R   = quartic_shape_factor( 1-xi   )
+        rp1 = quartic_shape_factor( 2-xi   )
+        rp2 = quartic_shape_factor( 3-xi   )
+        
+        Es[:,i] = Eg[:,l[i]-2]*lm2 + \
+                  Eg[:,l[i]-1]*lm1 + \
+                  Eg[:,l[i]  ]*L   + \
+                  Eg[:,r[i]  ]*R   + \
+                  Eg[:,r[i]+1]*rp1 + \
+                  Eg[:,r[i]+2]*rp2 
       
-        Bs[:,i] = Bg[:,l[i]-2]*quartic_shape_factor(   xi+2 ) + \
-                  Bg[:,l[i]-1]*quartic_shape_factor(   xi+1 ) + \
-                  Bg[:,l[i]  ]*quartic_shape_factor(   xi   ) + \
-                  Bg[:,r[i]  ]*quartic_shape_factor( 1-xi   ) + \
-                  Bg[:,r[i]+1]*quartic_shape_factor( 2-xi   ) + \
-                  Bg[:,r[i]+2]*quartic_shape_factor( 3-xi   ) 
+        Bs[:,i] = Bg[:,l[i]-2]*lm2 + \
+                  Bg[:,l[i]-1]*lm1 + \
+                  Bg[:,l[i]  ]*L   + \
+                  Bg[:,r[i]  ]*R   + \
+                  Bg[:,r[i]+1]*rp1 + \
+                  Bg[:,r[i]+2]*rp2 
 
     return
 
@@ -167,15 +183,20 @@ def I2p(Eg,Bg, Es,Bs, l,r, x, N):
         if r[i] == Nx-1:
             rp1 = 0
         
-        Es[:,i] = Eg[:,l[i]-1]*quadratic_shape_factor(   xi+1 ) + \
-                  Eg[:,l[i]  ]*quadratic_shape_factor(   xi   ) + \
-                  Eg[:,r[i]  ]*quadratic_shape_factor( 1-xi   ) + \
-                  Eg[:,rp1   ]*quadratic_shape_factor( 2-xi   ) 
+        lm1 = quadratic_shape_factor(   xi+1 )
+        L   = quadratic_shape_factor(   xi   )
+        R   = quadratic_shape_factor( 1-xi   )
+        Rp1 = quadratic_shape_factor( 2-xi   )
+        
+        Es[:,i] = Eg[:,l[i]-1]*lm1 + \
+                  Eg[:,l[i]  ]*L   + \
+                  Eg[:,r[i]  ]*R   + \
+                  Eg[:,rp1   ]*Rp1
                   
-        Bs[:,i] = Bg[:,l[i]-1]*quadratic_shape_factor(   xi+1 ) + \
-                  Bg[:,l[i]  ]*quadratic_shape_factor(   xi   ) + \
-                  Bg[:,r[i]  ]*quadratic_shape_factor( 1-xi   ) + \
-                  Bg[:,rp1   ]*quadratic_shape_factor( 2-xi   ) 
+        Bs[:,i] = Bg[:,l[i]-1]*lm1 + \
+                  Bg[:,l[i]  ]*L   + \
+                  Bg[:,r[i]  ]*R   + \
+                  Bg[:,rp1   ]*Rp1 
 
     return
 
@@ -207,16 +228,20 @@ def I3p(Eg,Bg, Es,Bs, l,r, x, N):
         if r[i] == Nx-1:
             rp1 = 0
                 
-        Es[:,i] = Eg[:,l[i]-1]*cubic_shape_factor(   xi+1 ) + \
-                  Eg[:,l[i]  ]*cubic_shape_factor(   xi   ) + \
-                  Eg[:,r[i]  ]*cubic_shape_factor( 1-xi   ) + \
-                  Eg[:,rp1   ]*cubic_shape_factor( 2-xi   ) 
-     
-        Bs[:,i] = Bg[:,l[i]-1]*cubic_shape_factor(   xi+1 ) + \
-                  Bg[:,l[i]  ]*cubic_shape_factor(   xi   ) + \
-                  Bg[:,r[i]  ]*cubic_shape_factor( 1-xi   ) + \
-                  Bg[:,rp1   ]*cubic_shape_factor( 2-xi   ) 
-
+        lm1 = cubic_shape_factor(   xi+1 )
+        L   = cubic_shape_factor(   xi   )
+        R   = cubic_shape_factor( 1-xi   )
+        Rp1 = cubic_shape_factor( 2-xi   )
+                
+        Es[:,i] = Eg[:,l[i]-1]*lm1 + \
+                  Eg[:,l[i]  ]*L   + \
+                  Eg[:,r[i]  ]*R   + \
+                  Eg[:,rp1   ]*Rp1
+                  
+        Bs[:,i] = Bg[:,l[i]-1]*lm1 + \
+                  Bg[:,l[i]  ]*L   + \
+                  Bg[:,r[i]  ]*R   + \
+                  Bg[:,rp1   ]*Rp1 
     return
 
 @numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4)", 
@@ -251,19 +276,26 @@ def I4p(Eg,Bg, Es,Bs, l,r, x, N):
         elif r[i] == Nx-2:
             rp2 = 0
                 
-        Es[:,i] = Eg[:,l[i]-2]*quartic_shape_factor(   xi+2 ) + \
-                  Eg[:,l[i]-1]*quartic_shape_factor(   xi+1 ) + \
-                  Eg[:,l[i]  ]*quartic_shape_factor(   xi   ) + \
-                  Eg[:,r[i]  ]*quartic_shape_factor( 1-xi   ) + \
-                  Eg[:,rp1   ]*quartic_shape_factor( 2-xi   ) + \
-                  Eg[:,rp2   ]*quartic_shape_factor( 3-xi   ) 
-
-        Bs[:,i] = Bg[:,l[i]-2]*quartic_shape_factor(   xi+2 ) + \
-                  Bg[:,l[i]-1]*quartic_shape_factor(   xi+1 ) + \
-                  Bg[:,l[i]  ]*quartic_shape_factor(   xi   ) + \
-                  Bg[:,r[i]  ]*quartic_shape_factor( 1-xi   ) + \
-                  Bg[:,rp1   ]*quartic_shape_factor( 2-xi   ) + \
-                  Bg[:,rp2   ]*quartic_shape_factor( 3-xi   ) 
+        lm2 = quartic_shape_factor(   xi+2 )
+        lm1 = quartic_shape_factor(   xi+1 )
+        L   = quartic_shape_factor(   xi   )
+        R   = quartic_shape_factor( 1-xi   )
+        Rp1 = quartic_shape_factor( 2-xi   )
+        Rp2 = quartic_shape_factor( 3-xi   )
+        
+        Es[:,i] = Eg[:,l[i]-2]*lm2 + \
+                  Eg[:,l[i]-1]*lm1 + \
+                  Eg[:,l[i]  ]*L   + \
+                  Eg[:,r[i]  ]*R   + \
+                  Eg[:,rp1   ]*Rp1 + \
+                  Eg[:,rp2   ]*Rp2 
+      
+        Bs[:,i] = Bg[:,l[i]-2]*lm2 + \
+                  Bg[:,l[i]-1]*lm1 + \
+                  Bg[:,l[i]  ]*L   + \
+                  Bg[:,r[i]  ]*R   + \
+                  Bg[:,rp1   ]*Rp1 + \
+                  Bg[:,rp2   ]*Rp2 
 
     return
 

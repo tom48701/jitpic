@@ -143,7 +143,7 @@ class Species:
             self.l = np.pad( self.l, (0,ppc), constant_values=(0,grid.Nx-2) )
             self.r = np.pad( self.r, (0,ppc), constant_values=(0,grid.Nx-1) )
 
-            # calculate thermal motion if needed
+            # calculate thermal motion
             if self.eV != 0.:
  
                 self.p  = np.pad( self.p, ((0,0),(0,ppc)), 'empty')
@@ -156,7 +156,7 @@ class Species:
                 
                 self.p[:,-ppc:]  = p
                 self.v[:,-ppc:]  = v
-                self.rg[-ppc:] =   rg
+                self.rg[-ppc:]   = rg
                 
             else:
                 self.p  = np.pad( self.p, ((0,0),(0,ppc)), constant_values=0. )
@@ -174,33 +174,32 @@ class Species:
             
             return
 
-    def sort_particles(self, return_sort=False):
+    def sort_particles(self, key='x'):
         """
-        Sort the particle arrays along x, optionally return the sorting
-        indices
+        Sort the particle arrays using a specified quantity, 
+        return the sorting indices also
         
         Still in development!
         """        
         
-        sort = np.argsort(self.x)
+        sort = np.argsort( getattr( self, key) )
         
-        self.state = self.state[sort]
-        self.x = self.x[sort]
-        self.x_old = self.x_old[sort]
-        self.w = self.w[sort]
-        self.rg = self.rg[sort]
-        self.l = self.l[sort]
-        self.r = self.r[sort]
+        self.state[:] = self.state[sort]
+        self.x[:] = self.x[sort]
+        self.x_old[:] = self.x_old[sort]
+        self.w[:] = self.w[sort]
+        self.rg[:] = self.rg[sort]
+        self.l[:] = self.l[sort]
+        self.r[:] = self.r[sort]
         
-        for arr in (self.v, self.p, self.E, self.B):
-            arr[0,:] = arr[0,sort]
-            arr[1,:] = arr[1,sort]
-            arr[2,:] = arr[2,sort]
-        
-        if return_sort:
-            return sort
-        else:
-            return
+        # broadcast indexing a 2D-array causes the order to change to F for some reason
+        self.v[:,:] = np.ascontiguousarray( self.v[:,sort] )
+        self.p[:,:] = np.ascontiguousarray( self.p[:,sort] )
+        self.E[:,:] = np.ascontiguousarray( self.E[:,sort] )
+        self.B[:,:] = np.ascontiguousarray( self.B[:,sort] )
+
+        return sort
+
     
     def compact_2D_array(self, arr):
         """
@@ -214,14 +213,17 @@ class Species:
         
         return A
     
-    def compact_particle_arrays(self):
+    def compact_particle_arrays(self, report_stats=False):
         """
         Compact the particle arrays by removing dead particles
         """
         
         if self.N_alive == self.N:
             return
-
+        
+        if report_stats:
+            print('%.1f%% particles dead'%(100-100*self.N_alive/self.N))
+            
         state = self.state
 
         self.x = self.x[state]

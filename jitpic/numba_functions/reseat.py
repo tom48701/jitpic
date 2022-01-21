@@ -62,7 +62,7 @@ def reseat_periodic(N,x,state,l,r,x0,x1,dx,idx,Nx ):
     """
     l[:] = np.floor((x-x0)*idx) # left cell
     r[:] = l+1 # right cell   
-    
+      
     for i in numba.prange(N): # particle BEFORE first cell
         if x[i] < x0:
 
@@ -78,7 +78,10 @@ def reseat_periodic(N,x,state,l,r,x0,x1,dx,idx,Nx ):
             
         if x[i] > x1: # particle IN final virtual cell
             r[i] = 0
-        
-        assert x[i] > x0
-        assert x[i] < x1+dx
+    
+    # for i in numba.prange(N):
+    #     x[i] = (x[i]-x0)%((x1+dx)-x0) + x0
+    #     l[i] = int((x[i]-x0)*idx)
+    #     r[i] = (l[i]+1)%Nx
+
     return
