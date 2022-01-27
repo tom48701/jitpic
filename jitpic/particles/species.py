@@ -7,7 +7,7 @@ class Species:
     """ Particle Species """
     
     def __init__(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None,
-                 p_x=0., p_y=0., p_z=0.):
+                 p_x=0., p_y=0., p_z=0., ids=False):
         """
         name  : str    : species name for diagnostic purposes
         ppc   : int    : number of particles per cell
@@ -23,6 +23,7 @@ class Species:
                          specified by functions are normalised to the
                          reference density species.n
         p_(i) : float  : flow momenta
+        ids   : bool   : add particle IDs for tracking (unimplemented)
         """
 
         self.name = name 
@@ -35,6 +36,7 @@ class Species:
         self.p0 = p0 
         self.p1 = p1 
         self.ddx = None # inter-particle half-spacing (set later)
+        self.ids = ids
         
         self.eV = eV
         self.Ek = self.eV / 5.11e5 # / electron rest mass energy
@@ -87,7 +89,12 @@ class Species:
         
         self.state = np.full(self.N, True, dtype=bool)
         self.N_alive = self.N # all particles should be alive at first
- 
+        
+        # register particle IDs and a total particle count
+        if self.ids:
+            self.Ntot = self.N_alive
+            self.id = np.arange(self.N_alive, dtype=int)
+            
         p = np.zeros((3,self.N))       
 
         # set initial flow and thermal momentum
@@ -105,9 +112,9 @@ class Species:
         self.l = np.zeros(self.N, dtype=np.dtype('u4'))
         self.r = np.zeros(self.N, dtype=np.dtype('u4'))
         self.l[:] = np.floor((self.x-grid.x0)/grid.dx) # left cells
-        
+    
         self.r[:] = np.mod(self.l+1, grid.Nx) # mod should only affect periodic mode
-
+        
         return
     
     def revert_x(self):
@@ -142,7 +149,14 @@ class Species:
             # expand index arrays & add values
             self.l = np.pad( self.l, (0,ppc), constant_values=(0,grid.Nx-2) )
             self.r = np.pad( self.r, (0,ppc), constant_values=(0,grid.Nx-1) )
-
+            
+            # expand IDs
+            if self.ids:
+                self.id = np.pad( self.id, (0,ppc), 'empty')
+                new_ids = np.arange( self.Ntot, self.Ntot+ppc, dtype=int)
+                self.id[-ppc:] = new_ids
+                self.Ntot += ppc
+                
             # calculate thermal motion
             if self.eV != 0.:
  
@@ -178,11 +192,11 @@ class Species:
         """
         Sort the particle arrays using a specified quantity, 
         return the sorting indices also
-        
-        Still in development!
         """        
-        
+        #sort = np.arange( self.N, dtype=int )
+        #np.random.shuffle( sort )
         sort = np.argsort( getattr( self, key) )
+        #self.sort = sort
         
         self.state[:] = self.state[sort]
         self.x[:] = self.x[sort]
@@ -191,8 +205,11 @@ class Species:
         self.rg[:] = self.rg[sort]
         self.l[:] = self.l[sort]
         self.r[:] = self.r[sort]
-        
-        # broadcast indexing a 2D-array causes the order to change to F for some reason
+        if self.ids:
+            self.id[:] = self.id[sort]
+            
+        # broadcast indexing a 2D-array causes the order to change to F for some reason,
+        # must be changed back to C or numba throws a fit
         self.v[:,:] = np.ascontiguousarray( self.v[:,sort] )
         self.p[:,:] = np.ascontiguousarray( self.p[:,sort] )
         self.E[:,:] = np.ascontiguousarray( self.E[:,sort] )
@@ -232,7 +249,9 @@ class Species:
         self.rg = self.rg[state]
         self.l = self.l[state]
         self.r = self.r[state]
-        
+        if self.ids:
+            self.id = self.id[state]
+            
         # 2D arrays are slightly more involved
         self.v = self.compact_2D_array( self.v )
         self.p = self.compact_2D_array( self.p )
@@ -267,3 +286,7 @@ class Species:
     def get_KE(self):
         """Return only living particle KEs"""
         return (1./self.rg[self.state]  - 1.)*self.w[self.state] 
+    
+    def get_IDs(self):
+        """Return only living particle IDs"""
+        return self.id[self.state]

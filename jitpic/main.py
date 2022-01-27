@@ -22,7 +22,8 @@ class Simulation:
                  plotfunc=default_inline_plotting_script,
                  n_threads=numba.get_num_threads(), seed=0,
                  resize_period=100, boundaries='open',
-                 pusher='cohen', diagdir='diags', imagedir='images'):
+                 pusher='cohen', diagdir='diags', imagedir='images',
+                 sort_period=0):
         """ 
         Initialise the simulation, set up the grid at the same time
         
@@ -88,6 +89,7 @@ class Simulation:
                 self.append_species(spec)
         # register the particle array resize period
         self.resize_period = resize_period
+        self.sort_period = sort_period
         # register the diagnostic period and associated directories
         self.diag_period = diag_period 
         self.diagdir = diagdir
@@ -170,6 +172,7 @@ class Simulation:
             self.apply_fields_to_particles()
             # push p,v to n+1/2, x to n+1
             self.push_particles( self.dt ) 
+            self.reseat_particles()
             # push J to n+1/2 
             self.deposit_current()  
             #push E,B to n+1
@@ -181,17 +184,22 @@ class Simulation:
                 # inject new particles
                 for spec in self.species:
                     spec.inject_particles(self.grid)
+                # reseat particles again after grid shift
+                self.reseat_particles()
                 # periodically clean up dead particles
                 if self.resize_period > 0 and self.iter%self.resize_period == 0:
                     for spec in self.species:
                         spec.compact_particle_arrays()    
-            # reseat and mask particles    
-            self.reseat_particles()
+            # periodically sort particles
+            if self.sort_period > 0 and self.iter%self.sort_period == 0:
+                for spec in self.species:
+                    spec.sort_particles()   
             # advance simulation time and iteration
             self.t += self.dt
             self.iter += 1
-        print( 'Finished in %.3f s'%(time.time()-t0))
-        print( 'Now at t = %.3e\n'%self.t)
+        if not silent:
+            print( 'Finished in %.3f s'%(time.time()-t0))
+            print( 'Now at t = %.3e\n'%self.t)
         return  
     
     def add_new_species(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None):
@@ -238,9 +246,8 @@ class Simulation:
         
         for spec in self.species:
 
-            # calculate the index splits for current deposition - assume masked arrays
-            indices = [ i*spec.N//self.n_threads for i in range(self.n_threads)]+[spec.N-1] 
-            indices = np.array(indices)
+            # calculate the index splits for current deposition
+            indices = np.fromiter([ i*spec.N//self.n_threads for i in range(self.n_threads)] + [spec.N], int, count=self.n_threads+1 )
             
             self.deposit_rho_func(self.n_threads, spec.x, grid.idx, 
                                   spec.q*spec.w, grid.rho_2D, 
@@ -261,9 +268,8 @@ class Simulation:
         grid = self.grid
         grid.rho_2D[:,:] = 0.
         
-        # calculate the index splits for charge deposition - assume masked arrays
-        indices = [ i*spec.N//self.n_threads for i in range(self.n_threads)]+[spec.N-1] 
-        indices = np.array(indices)
+        # calculate the index splits for charge deposition
+        indices = np.fromiter([ i*spec.N//self.n_threads for i in range(self.n_threads)] + [spec.N], int, count=self.n_threads+1 )
         
         self.deposit_rho_func(self.n_threads, spec.x, grid.idx, 
                               spec.q*spec.w, grid.rho_2D, 
@@ -301,14 +307,12 @@ class Simulation:
         
         for spec in self.species:
             # calculate the index splits for current deposition 
-            indices = [ i*spec.N//self.n_threads for i in range(self.n_threads)]+[spec.N-1] 
-            indices = np.array(indices)
-    
+            indices = np.fromiter([ i*spec.N//self.n_threads for i in range(self.n_threads)] + [spec.N], int, count=self.n_threads+1 )
+
             self.deposit_J_func( spec.x, spec.x_old, spec.w, spec.v, grid.J_3D,
                           self.n_threads, indices, spec.q, grid.x,
                           spec.state, grid.idx, grid.x0*grid.idx)
 
-        # reduce the current to 2D
         grid.J[:,:] = grid.J_3D.sum(axis=0)
         
         return
@@ -338,7 +342,7 @@ class Simulation:
                               spec.E, spec.B,
                               spec.l, spec.r, 
                               (spec.x - self.grid.x0)*self.grid.idx,
-                              spec.N )
+                              spec.N, spec.state )
         return 
     
     def push_fields(self):
@@ -396,7 +400,7 @@ class Simulation:
                         B = ext_field.add_field(x, self.t, B)
 
             self.particle_push_func( E, B, dt*self.pushconst*spec.qm, spec.p, spec.v, x, spec.x_old, 
-                                    spec.rg, spec.m, dt, spec.N) 
+                                    spec.rg, spec.m, dt, spec.N, spec.state) 
                       
         return
 

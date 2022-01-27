@@ -30,10 +30,11 @@ def J1o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
     
     No returns neccessary as arrays are modified in-place.
     """
+
     for k in numba.prange(n_threads):
         for j in range( indices[k], indices[k+1] ):   
             if state[j]:
-                
+ 
                 x = xs[j] * idx
                 x_old = x_olds[j] * idx
                 w = ws[j]*q
@@ -65,7 +66,8 @@ def J1o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                     J[k,2, i-1] += w*vz * max( 0, dx ) 
                     J[k,2, i  ] += w*vz * max( 0, 1-abs(dx)   ) 
                     J[k,2, i+1] += w*vz * max( 0, -dx ) 
-
+                    
+                    
     return
 
 @numba.njit("(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)", 
@@ -292,7 +294,7 @@ def J1p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
     for k in numba.prange(n_threads):
         for j in range( indices[k], indices[k+1] ):   
             if state[j]:
-                
+            
                 x = xs[j] * idx
                 x_old = x_olds[j] * idx
                 w = ws[j]*q
@@ -307,13 +309,13 @@ def J1p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                 # and fix their displacement. then manually set the correct indices
                 if i == 0:  
                     if abs(x - x_old) > 1:
-                        x = x_old - x_old%1 - (1-x%1)
+                        x -= Nx
      
                 elif i == Nx-1:
                     ip1 = 0
                     ip2 = 1 
                     if abs(x - x_old) > 1:   
-                        x = x_old + (1-x_old%1) + x%1
+                        x += Nx
                         
                 elif i == Nx-2:
                     ip2 = 0
@@ -386,14 +388,14 @@ def J2p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                 # check for particles that have traversed the grid edges, 
                 # and fix their displacement. then manually set the correct indices
                 if i == 0 and abs(x - x_old) > 1:
-                    x = x_old - x_old%1 - (1-x%1)
+                    x -= Nx
                 
                 elif i == Nx-1:
                     ip1 = 0
                     ip2 = 1 
                     ip3 = 2
                     if abs(x - x_old) > 1:   
-                        x = x_old + (1-x_old%1) + x%1
+                        x += Nx
                 
                 elif i == Nx-2:
                     ip2 = 0
@@ -475,14 +477,14 @@ def J3p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                 # check for particles that have traversed the grid edges, 
                 # and fix their displacement. then manually set the correct indices
                 if i == 0 and abs(x - x_old) > 1:
-                    x = x_old - x_old%1 - (1-x%1)
+                    x -= Nx
                 
                 elif i == Nx-1:
                     ip1 = 0
                     ip2 = 1 
                     ip3 = 2
                     if abs(x - x_old) > 1:   
-                        x = x_old + (1-x_old%1) + x%1
+                        x += Nx
                 
                 elif i == Nx-2:
                     ip2 = 0
@@ -564,17 +566,19 @@ def J4p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                 
                 # check for particles that have traversed the grid edges, 
                 # and fix their displacement. then manually set the correct indices
+            
                 if i == 0 and abs(x - x_old) > 1:
-                    x = x_old - x_old%1 - (1-x%1)
-                
+                    x -= Nx
+
                 elif i == Nx-1:
                     ip1 = 0
                     ip2 = 1 
                     ip3 = 2
                     ip4 = 3
+                    
                     if abs(x - x_old) > 1:   
-                        x = x_old + (1-x_old%1) + x%1
-                
+                        x += Nx
+
                 elif i == Nx-2:
                     ip2 = 0
                     ip3 = 1

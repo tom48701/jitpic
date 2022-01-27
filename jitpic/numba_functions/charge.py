@@ -33,7 +33,7 @@ def R1o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
                 xi = (x[i] - xg[l[i]])*idx
                 
                 rho[j,l[i]] += qw[i] * (1-xi)
-                rho[j,r[i]] += qw[i] * xi          
+                rho[j,r[i]] += qw[i] * xi      
     return
 
 @numba.njit("(i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], b1[::1], i4[::1], f8[::1], i4)", 

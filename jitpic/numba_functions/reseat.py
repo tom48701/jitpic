@@ -32,11 +32,9 @@ def reseat_open(N,x,state,l,r,x0,x1,dx,idx,Nx ):
         
     for i in numba.prange(N):
         if x[i] >= x1 or x[i] < x0:
-
             state[i] = False
-
-            l[i] = 0
-            r[i] = 0 # particles must have valid indices even if they're dead
+            #l[i] = 0
+            #r[i] = 0 # particles must have valid indices even if they're dead
  
     return
 
@@ -54,7 +52,7 @@ def reseat_periodic(N,x,state,l,r,x0,x1,dx,idx,Nx ):
     l     : left cell index
     r     : right cell index
     x0    : grid x0
-    x1    : grid (x1 + dx)
+    x1    : grid x1
     idx   : grid inverse dx
     Nx    : grid Nx
      
@@ -65,23 +63,16 @@ def reseat_periodic(N,x,state,l,r,x0,x1,dx,idx,Nx ):
       
     for i in numba.prange(N): # particle BEFORE first cell
         if x[i] < x0:
-
-            x[i] = (x1+dx) - (x0 - x[i])
+            x[i] += Nx*dx
             r[i] = 0
             l[i] = Nx-1
             
         if x[i] > x1+dx: # aprticle BEYOND final 'virtual' cell
-            
-            x[i] = x0 + (x[i] - (x1+dx) )
+            x[i] -= Nx*dx
             l[i] = 0
             r[i] = 1
             
         if x[i] > x1: # particle IN final virtual cell
             r[i] = 0
-    
-    # for i in numba.prange(N):
-    #     x[i] = (x[i]-x0)%((x1+dx)-x0) + x0
-    #     l[i] = int((x[i]-x0)*idx)
-    #     r[i] = (l[i]+1)%Nx
 
     return

@@ -3,10 +3,10 @@ This module contains the piecewise functions describing various particle shapes.
 The functions are optimised for performance. 
 The basic shape factors are symmetric, so only the positive part is computed, arguments should reflect this
 """
+# import the numba configuration first
+from ..config import cache, fastmath
 import numba
 import numpy as np
-# import the numba configuration
-from ..config import cache, fastmath
 
 @numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
 def quadratic_shape_factor(x):
