@@ -1,19 +1,8 @@
 """
 This module contains the charge deposition functions.
-"""
-import numba
+Charge is deposited on grid verices, not in cell centers! 
 
-from .shapes import quadratic_shape_factor, cubic_shape_factor, quartic_shape_factor
-# import the numba configuration
-from ..config import parallel, cache, fastmath
-
-@numba.njit("(i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], b1[::1], i4[::1], f8[::1], i4)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
-def R1o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
-    """
-    Charge density deposition for linear particle shapes and open boundaries
-    
-    N         : number of particles
+arguments  
     n_threads : number of parallel threads
     x         : particle positions
     idx       : inverse grid dx
@@ -21,12 +10,26 @@ def R1o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
     rho       : 2D rho array
     l         : particle left cell indices
     r         : particle right cell indices
+    state     : particle states
     indices   : particle index start/stop for each thread
     xg        : grid points
     Nx        : grid Nx
 
     No returns neccessary as arrays are modified in-place.
-    """
+"""
+
+# import the numba configuration
+from ..config import parallel, cache, fastmath
+import numba
+
+from .shapes import quadratic_shape_factor, cubic_shape_factor, quartic_shape_factor
+
+signature = "(i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], b1[::1], i4[::1], f8[::1], i4)"
+njit = numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
+
+@njit
+def R1o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
+    """ 1st order shapes and open or periodic boundaries """
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             if state[i]:
@@ -36,26 +39,9 @@ def R1o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
                 rho[j,r[i]] += qw[i] * xi      
     return
 
-@numba.njit("(i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], b1[::1], i4[::1], f8[::1], i4)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def R2o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
-    """
-    Charge density deposition for quadratic particle shapes and open boundaries
-
-    N         : number of particles
-    n_threads : number of parallel threads
-    x         : particle positions
-    idx       : inverse grid dx
-    qw        : particle (w*q)
-    rho       : 2D rho array
-    l         : particle left cell indices
-    r         : particle right cell indices
-    indices   : particle index start/stop for each thread
-    xg        : grid points
-    Nx        : grid Nx
-
-    No returns neccessary as arrays are modified in-place.
-    """ 
+    """ 2nd order shapes and open boundaries """
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             if state[i]:
@@ -72,26 +58,9 @@ def R2o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
                     rho[j,r[i]+1]    += qw[i] * quadratic_shape_factor(2-xi)
     return
 
-@numba.njit("(i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], b1[::1], i4[::1], f8[::1], i4)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def R3o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
-    """
-    Charge density deposition for cubic particle shapes and open boundaries
-
-    N         : number of particles
-    n_threads : number of parallel threads
-    x         : particle positions
-    idx       : inverse grid dx
-    qw        : particle (w*q)
-    rho       : 2D rho array
-    l         : particle left cell indices
-    r         : particle right cell indices
-    indices   : particle index start/stop for each thread
-    xg        : grid points
-    Nx        : grid Nx
-
-    No returns neccessary as arrays are modified in-place.
-    """ 
+    """ 3rd order shapes and open boundaries """
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             if state[i]:
@@ -108,26 +77,9 @@ def R3o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
                     rho[j,r[i]+1]    += qw[i] * cubic_shape_factor(2-xi)
     return
 
-@numba.njit("(i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], b1[::1], i4[::1], f8[::1], i4)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def R4o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
-    """
-    Charge density deposition for quartic particle shapes and open boundaries
-
-    n_threads : number of parallel threads
-    x         : particle positions
-    idx       : inverse grid dx
-    qw        : particle weight * charge
-    rho       : 2D rho array
-    l         : particle left cell indices
-    r         : particle right cell indices
-    state     : particle states
-    indices   : particle index start/stop for each thread
-    xg        : grid points
-    Nx        : grid Nx
-
-    No returns neccessary as arrays are modified in-place.
-    """ 
+    """ 4th order shapes and open boundaries """ 
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             if state[i]:
@@ -152,26 +104,9 @@ def R4o(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
 R1p = R1o
 
 
-@numba.njit("(i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], b1[::1], i4[::1], f8[::1], i4)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def R2p(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
-    """
-    Charge density deposition for quadratic particle shapes and periodic boundaries
-
-    N         : number of particles
-    n_threads : number of parallel threads
-    x         : particle positions
-    idx       : inverse grid dx
-    qw        : particle (w*q)
-    rho       : 2D rho array
-    l         : particle left cell indices
-    r         : particle right cell indices
-    indices   : particle index start/stop for each thread
-    xg        : grid points
-    Nx        : grid Nx
-
-    No returns neccessary as arrays are modified in-place.
-    """ 
+    """ 2nd order shapes and periodic boundaries """
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             if state[i]:
@@ -185,26 +120,9 @@ def R2p(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
                 rho[j,rp1 ]   += qw[i] * quadratic_shape_factor(2-xi)
     return
 
-@numba.njit("(i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], b1[::1], i4[::1], f8[::1], i4)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def R3p(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
-    """
-    Charge density deposition for cubic particle shapes and periodic boundaries
-
-    N         : number of particles
-    n_threads : number of parallel threads
-    x         : particle positions
-    idx       : inverse grid dx
-    qw        : particle (w*q)
-    rho       : 2D rho array
-    l         : particle left cell indices
-    r         : particle right cell indices
-    indices   : particle index start/stop for each thread
-    xg        : grid points
-    Nx        : grid Nx
-
-    No returns neccessary as arrays are modified in-place.
-    """ 
+    """ 3rd order shapes and periodic boundaries """
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             if state[i]:
@@ -218,26 +136,9 @@ def R3p(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
                 rho[j,rp1 ]   += qw[i] * cubic_shape_factor(2-xi)
     return
 
-@numba.njit("(i8, f8[::1], f8, f8[::1], f8[:,::1], u4[::1], u4[::1], b1[::1], i4[::1], f8[::1], i4)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def R4p(n_threads, x, idx, qw, rho, l, r, state, indices, xg, Nx ):
-    """
-    Charge density deposition for quartic particle shapes and periodic boundaries
-
-    N         : number of particles
-    n_threads : number of parallel threads
-    x         : particle positions
-    idx       : inverse grid dx
-    qw        : particle (w*q)
-    rho       : 2D rho array
-    l         : particle left cell indices
-    r         : particle right cell indices
-    indices   : particle index start/stop for each thread
-    xg        : grid points
-    Nx        : grid Nx
-
-    No returns neccessary as arrays are modified in-place.
-    """ 
+    """ 4th order shapes and periodic boundaries """
     for j in numba.prange(n_threads):
         for i in range( indices[j], indices[j+1] ):   
             if state[i]:

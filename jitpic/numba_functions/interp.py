@@ -21,8 +21,9 @@ import numba
 from .shapes import quadratic_shape_factor, cubic_shape_factor, quartic_shape_factor
 
 signature = "(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4, b1[::1])"
+njit = numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
 
-@numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def I1o(Eg,Bg, Es,Bs, l,r, x, N, state):
     """ 1st order shapes with open or periodic boundaries """
     for i in numba.prange(N):
@@ -33,7 +34,7 @@ def I1o(Eg,Bg, Es,Bs, l,r, x, N, state):
             Bs[:,i] = (1-xi)*Bg[:,l[i]] + xi*Bg[:,r[i]]
     return
 
-@numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def I2o(Eg,Bg, Es,Bs, l,r, x, N, state):
     """ 2nd order shapes with open boundaries """
     for i in numba.prange(N):
@@ -56,7 +57,7 @@ def I2o(Eg,Bg, Es,Bs, l,r, x, N, state):
                       Bg[:,r[i]+1]*rp1 
     return
 
-@numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def I3o(Eg,Bg, Es,Bs, l,r, x, N, state):
     """ 3rd order shapes with open boundaries """
     for i in numba.prange(N):
@@ -79,7 +80,7 @@ def I3o(Eg,Bg, Es,Bs, l,r, x, N, state):
                       Bg[:,r[i]+1]*rp1           
     return
 
-@numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def I4o(Eg,Bg, Es,Bs, l,r, x, N, state):
     """ 4th order shapes with open boundaries """
     for i in numba.prange(N):
@@ -111,7 +112,7 @@ def I4o(Eg,Bg, Es,Bs, l,r, x, N, state):
 # Interpolation for linear particles are the same, so a simple alias is used.
 I1p = I1o
 
-@numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def I2p(Eg,Bg, Es,Bs, l,r, x, N, state):
     """ 2nd order shapes with periodic boundaries """
     Nx = len(Eg[0])
@@ -140,7 +141,7 @@ def I2p(Eg,Bg, Es,Bs, l,r, x, N, state):
                   Bg[:,rp1   ]*Rp1 
     return
 
-@numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def I3p(Eg,Bg, Es,Bs, l,r, x, N, state):
     """ 3rd order shapes with open boundaries """
     Nx = len(Eg[0])
@@ -169,8 +170,7 @@ def I3p(Eg,Bg, Es,Bs, l,r, x, N, state):
                   Bg[:,rp1   ]*Rp1 
     return
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], u4[::1], u4[::1], f8[::1], i4, b1[::1])", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def I4p(Eg,Bg, Es,Bs, l,r, x, N, state):
     """ 4th order shapes with periodic boundaries"""
     Nx = len(Eg[0])

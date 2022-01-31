@@ -103,18 +103,6 @@ class Simulation:
         #  and moving window state
         self.moving_window = False
         return
-
-    def set_moving_window(self, state):
-        """
-        Activate or deactivate the moving window.
-        Cannot be used with periodic boundaries!
-        
-        state : bool : moving window on/off
-        """
-        assert self.boundaries == 'open', 'Moving window must employ open boundaries'
-        
-        self.moving_window = state
-        return
     
     def step( self, N=1, silent=False ):
         """
@@ -122,7 +110,7 @@ class Simulation:
         timeseries data and images.
         
         N      : int  : number of steps to perform
-        silent : bool : disable print diagnostic information during the run
+        silent : bool : disable printing diagnostic information during the run
         """
         # print summary information
         if not silent:
@@ -165,7 +153,6 @@ class Simulation:
                 if laser.is_antenna:
                     self.inject_antenna_fields(laser)     
             ## main PIC cycle
-            #print(self.iter)
             # E,B,x at n
             # J,p,v at n-1/2
             # interpolate fields onto particles
@@ -201,7 +188,7 @@ class Simulation:
             print( 'Finished in %.3f s'%(time.time()-t0))
             print( 'Now at t = %.3e\n'%self.t)
         return  
-    
+
     def add_new_species(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None):
         """ 
         Wrapper function for initialising and adding a new particle species
@@ -209,6 +196,7 @@ class Simulation:
 
         name  : str    : species name for diagnostic purposes
         ppc   : int    : number of particles per cell
+        n     : float  : normalised density
         p0    : float  : species start position
         p1    : float  : species end position
         m     : float  : particle mass in electron masses (optional)
@@ -217,23 +205,17 @@ class Simulation:
         dens  : func   : function describing the density profile, the function
                          takes a single argument which is the grid x-positions
         """
-        
         new_species = Species( name, ppc, n, p0, p1, dens=dens, m=m, q=q, eV=eV )
-        
-        self.append_species( new_species )
-        
+        self.append_species( new_species ) 
         return
     
     def append_species(self, spec):
         """
         Initialise and append a species object to the list of species
         """
-    
         spec.initialise_particles(self.grid)
-        
         self.species.append(spec)
         self.Nspecies = len(self.species)
-        
         return
 
     def deposit_rho(self):
@@ -245,7 +227,6 @@ class Simulation:
         grid.rho_2D[:,:] = 0.
         
         for spec in self.species:
-
             # calculate the index splits for current deposition
             indices = np.fromiter([ i*spec.N//self.n_threads for i in range(self.n_threads)] + [spec.N], int, count=self.n_threads+1 )
             
@@ -291,6 +272,17 @@ class Simulation:
         for spec in self.species:
             spec.revert_x()
         return
+
+    def set_moving_window(self, state):
+        """
+        Activate or deactivate the moving window.
+        Cannot be used with periodic boundaries!
+        
+        state : bool : moving window on/off
+        """
+        assert self.boundaries == 'open', 'Moving window must employ open boundaries'
+        self.moving_window = state
+        return
        
     def deposit_current(self):
         """
@@ -304,17 +296,16 @@ class Simulation:
         grid = self.grid
         # zero the current
         grid.J_3D[:,:,:] = 0.
-        
+        # loop over all species
         for spec in self.species:
             # calculate the index splits for current deposition 
             indices = np.fromiter([ i*spec.N//self.n_threads for i in range(self.n_threads)] + [spec.N], int, count=self.n_threads+1 )
-
+            # deposit current
             self.deposit_J_func( spec.x, spec.x_old, spec.w, spec.v, grid.J_3D,
                           self.n_threads, indices, spec.q, grid.x,
                           spec.state, grid.idx, grid.x0*grid.idx)
-
+        # reduce the current
         grid.J[:,:] = grid.J_3D.sum(axis=0)
-        
         return
 
     def add_external_field(self, field, component, magnitude, function=None):
@@ -326,7 +317,6 @@ class Simulation:
         magnitude         : float         : magnitude of the field
         function          : func or None  : field profile, uniform if None
         """
-        
         self.external_fields.append( External_field(field, component, magnitude,
                                                     function=function) )
         return
@@ -335,9 +325,9 @@ class Simulation:
         """
         interpolate grid fields onto particles.
         """
-              
+        # loop over all species
         for spec in self.species:
-            
+            # gather fields
             self.interpolate_func(self.grid.E,self.grid.B,
                               spec.E, spec.B,
                               spec.l, spec.r, 
@@ -350,28 +340,25 @@ class Simulation:
         advance the fields in time using a numerical-dispersion free along x 
         (NDFX) field solver. This requires that dx == dt.
         """
-        
         grid = self.grid
-        
         pidt = np.pi*self.dt
-        
+        # advance longitudinal E field
         grid.E[0,:grid.NEB] -= 2. * pidt * grid.J[0,:grid.NJ]
-             
+        # define intermediary P and S fields
         PR = (grid.E[1] + grid.B[2]) * .5
         PL = (grid.E[1] - grid.B[2]) * .5
         SR = (grid.E[2] - grid.B[1]) * .5
         SL = (grid.E[2] + grid.B[1]) * .5
-   
+        # advance the fields
         PR[grid.f_shift] = PR[:grid.NEB] - pidt * grid.J[1,:grid.NJ]
         PL[:grid.NEB] = PL[grid.f_shift] - pidt * grid.J[1,:grid.NJ]
         SR[grid.f_shift] = SR[:grid.NEB] - pidt * grid.J[2,:grid.NJ]
         SL[:grid.NEB] = SL[grid.f_shift] - pidt * grid.J[2,:grid.NJ]
-        
+        # convert back to E and B fields
         grid.E[1,:grid.NEB] = PR[:grid.NEB] + PL[:grid.NEB]
         grid.B[2,:grid.NEB] = PR[:grid.NEB] - PL[:grid.NEB]
         grid.E[2,:grid.NEB] = SL[:grid.NEB] + SR[:grid.NEB]
         grid.B[1,:grid.NEB] = SL[:grid.NEB] - SR[:grid.NEB]
-        
         return  
 
     def push_particles(self, dt):
@@ -385,23 +372,21 @@ class Simulation:
                           initial setup to offset p and v to -1/2. x must be
                           manually reverted to keep it on integer step
         """ 
+        # loop over all species
         for spec in self.species:
-
             x = spec.x
             E = spec.E
             B = spec.B
-                
-            # apply external fields
+            # apply any external fields
             if len(self.external_fields) > 0:
                 for ext_field in self.external_fields:
                     if ext_field.field == 'E':   
                         E = ext_field.add_field(x, self.t, E)
                     else:
                         B = ext_field.add_field(x, self.t, B)
-
+            # push particles
             self.particle_push_func( E, B, dt*self.pushconst*spec.qm, spec.p, spec.v, x, spec.x_old, 
                                     spec.rg, spec.m, dt, spec.N, spec.state) 
-                      
         return
 
     def reseat_particles(self):
@@ -410,10 +395,8 @@ class Simulation:
         that got pushed off the grid.
         """ 
         for spec in self.species:
-
             self.reseat_func(spec.N, spec.x, spec.state, spec.l, spec.r,
                          self.grid.x0, self.grid.x1, self.grid.dx, self.grid.idx, self.grid.Nx)
-            
             spec.N_alive = spec.state.sum()
         return
         
@@ -440,7 +423,7 @@ class Simulation:
         """
         if x_antenna is None:
             x_antenna = self.grid.x0
-            
+         
         new_laser = Laser(a0, lambda_0=lambda_0, p=p, x0=x0, ctau=ctau, d=d, 
                           theta_pol=theta_pol, clip=clip, cep=cep,
                           method=method, x_antenna=x_antenna,
@@ -478,23 +461,19 @@ class Simulation:
         
         diagdir : str : folder to write diagnostics to
         """
-
         make_directory(self.diagdir)
-            
         fname = '%s/diags-%.8i.h5'%(self.diagdir, self.iter)
-        
         with h5py.File(fname, 'w') as f:
-            
+            # create attributes
             f.attrs['iter'] = self.iter
             f.attrs['time'] = self.t
             f.attrs['dt'] = self.dt
-            
+            # get fields to write
             E = self.grid.get_field('E')
             B = self.grid.get_field('B')
             J = self.grid.get_field('J')
-            
+            # create the datasets
             f.create_dataset('x', data=self.grid.x)
-            
             f.create_dataset('Ex', data=E[0] )
             f.create_dataset('Ey', data=E[1] )
             f.create_dataset('Ez', data=E[2] )
@@ -504,11 +483,9 @@ class Simulation:
             f.create_dataset('Jx', data=J[0] )
             f.create_dataset('Jy', data=J[1] )
             f.create_dataset('Jz', data=J[2] )    
-            
             f.create_dataset('rho', data=self.deposit_rho())
             for spec in self.species:
                 f.create_dataset(spec.name, data=self.deposit_single_species(spec) )
-   
         return
         
     def plot_result(self, index=None, dpi=220, fontsize=8, lambda0=8e-7, imagedir='images'):
@@ -522,23 +499,18 @@ class Simulation:
         lambda0  : float : real wavelength to be used for any conversions
         imagedir : str   : folder in which to save the images
         """
-        
         # make the image directory if it doesn't already exist
         make_directory(imagedir)
-        
         # generate a figure
-        fig = self.inline_plotting_script( self, fontsize=fontsize )
-   
+        fig = self.inline_plotting_script( self )
         # set the file name and save
         if index is not None:
             fig.savefig('%s/%.8i.png'%(imagedir, index), dpi=dpi)            
         else:
             fig.savefig('%s/%.8i.png'%(imagedir, self.iter), dpi=dpi)
-        
         # clean up
         plt.close(fig) 
         gc.collect()
-        
         return
     
     def add_timeseries_diagnostic( self, fields, cells, fname='timeseries_data'):
@@ -553,9 +525,9 @@ class Simulation:
         cells   : list of int : list of cells to track [0 : Nx-1]
         fname   : str         : output file name
         """
-        
         self.tsdiag = Timeseries_diagnostic(self, fields, cells,
                                             buffer_size=self.diag_period,
-                                            diagdir=self.diagdir, fname=fname)      
+                                            diagdir=self.diagdir, fname=fname)
+        return
         
         

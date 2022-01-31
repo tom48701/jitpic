@@ -3,7 +3,7 @@ from .reseat import reseat_open, reseat_periodic
 from .current import J1o, J2o, J3o, J4o, J1p, J2p, J3p, J4p
 from .charge import R1o, R2o, R3o, R4o, R1p, R2p, R3p, R4p
 from .interp import I1o, I2o, I3o, I4o, I1p, I2p, I3p, I4p
-                       
+               
 # create a dictionary contaning the various functions
 # J: current deposition
 # R: charge deposition

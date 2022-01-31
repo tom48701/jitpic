@@ -8,7 +8,9 @@ from ..config import cache, fastmath
 import numba
 import numpy as np
 
-@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
+njit = numba.njit("f8(f8)", cache=cache, fastmath=fastmath) 
+
+@njit
 def quadratic_shape_factor(x):
     if x < 0.5:
         return 0.75-x**2
@@ -17,7 +19,7 @@ def quadratic_shape_factor(x):
     else:
         return 0
 
-@numba.njit("f8(f8)", cache=cache, fastmath=fastmath) 
+@njit
 def cubic_shape_factor(x):
     if x < 1:
         return (3*x**3-6*x**2+4) * 0.16666666666666666
@@ -26,7 +28,7 @@ def cubic_shape_factor(x):
     else: 
         return 0
 
-@numba.njit("f8(f8)", cache=cache, fastmath=fastmath) 
+@njit
 def quartic_shape_factor(x):
     if x < 0.5:
         return (48*x**4-120*x**2+115) * 0.005208333333333333
@@ -38,7 +40,7 @@ def quartic_shape_factor(x):
         return 0
     
 # integrated shape functions for current deposition
-@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
+@njit
 def integrated_linear_shape_factor(x):
     sgn = np.sign(x)
     x = abs(x)    
@@ -47,7 +49,7 @@ def integrated_linear_shape_factor(x):
     else:# x>1:
         return sgn * 0.5 
      
-@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
+@njit
 def integrated_quadratic_shape_factor(x):  
     sgn = np.sign(x)
     x = abs(x)
@@ -58,7 +60,7 @@ def integrated_quadratic_shape_factor(x):
     else: # x>1.5
         return sgn * 0.5
 
-@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
+@njit
 def integrated_cubic_shape_factor(x):    
     sgn = np.sign(x)
     x = abs(x)
@@ -69,7 +71,7 @@ def integrated_cubic_shape_factor(x):
     else: # x > 2
         return sgn * 0.5
 
-@numba.njit("f8(f8)", cache=cache, fastmath=fastmath)
+@njit
 def integrated_quartic_shape_factor(x):    
     sgn = np.sign(x)
     x = abs(x)

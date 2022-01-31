@@ -1,20 +1,7 @@
 """
 This module contains the current deposition functions.
-"""
-import numba
 
-from .shapes import quadratic_shape_factor, cubic_shape_factor, quartic_shape_factor
-from .shapes import integrated_linear_shape_factor, integrated_quadratic_shape_factor
-from .shapes import integrated_cubic_shape_factor, integrated_quartic_shape_factor
-# import the numba configuration
-from ..config import parallel, cache, fastmath
-
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
-def J1o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
-    """
-    Current deposition for linear particle shapes with open boundaries
-    
+arguments:
     xs        : current particle positions
     x_olds    : old particle positions
     ws        : particle weights
@@ -29,8 +16,22 @@ def J1o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
     x0        : grid start position / dx
     
     No returns neccessary as arrays are modified in-place.
-    """
 
+"""
+# import the numba configuration first
+from ..config import parallel, cache, fastmath
+import numba
+
+from .shapes import quadratic_shape_factor, cubic_shape_factor, quartic_shape_factor
+from .shapes import integrated_linear_shape_factor, integrated_quadratic_shape_factor
+from .shapes import integrated_cubic_shape_factor, integrated_quartic_shape_factor
+
+signature = "(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)"
+njit = numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
+
+@njit
+def J1o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
+    """ 1st order shapes with open boundaries """
     for k in numba.prange(n_threads):
         for j in range( indices[k], indices[k+1] ):   
             if state[j]:
@@ -65,32 +66,12 @@ def J1o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                 if vz != 0.: # Jz
                     J[k,2, i-1] += w*vz * max( 0, dx ) 
                     J[k,2, i  ] += w*vz * max( 0, 1-abs(dx)   ) 
-                    J[k,2, i+1] += w*vz * max( 0, -dx ) 
-                    
-                    
+                    J[k,2, i+1] += w*vz * max( 0, -dx )             
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def J2o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
-    """
-    Current deposition for quadratic particle shapes with open boundaries
-    
-    xs        : current particle positions
-    x_olds    : old particle positions
-    ws        : particle weights
-    vs        : particle velocities (3,Np)
-    J         : 3D current array
-    n_threads : number of parallel threads
-    indices   : particle index start/stop for each thread
-    q         : particle charge
-    xidx      : grid positions
-    state     : particle states
-    idx       : inverse dx
-    x0        : grid start position / dx
-    
-    No returns neccessary as arrays are modified in-place.
-    """
+    """ 2nd order shapes with open boundaries """
     for k in numba.prange(n_threads):
         for j in range( indices[k], indices[k+1] ):   
             if state[j]:  
@@ -134,27 +115,9 @@ def J2o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                     J[k,2, i+2] += w*vz * quadratic_shape_factor( 2+dx )
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def J3o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
-    """
-    Current deposition for cubic particle shapes with open boundaries
-        
-    xs        : current particle positions
-    x_olds    : old particle positions
-    ws        : particle weights
-    vs        : particle velocities (3,Np)
-    J         : 3D current array
-    n_threads : number of parallel threads
-    indices   : particle index start/stop for each thread
-    q         : particle charge
-    xidx      : grid positions
-    state     : particle states
-    idx       : inverse dx
-    x0        : grid start position / dx
-    
-    No returns neccessary as arrays are modified in-place.
-    """
+    """ 3rd order shapes with open boundaries """
     for k in numba.prange(n_threads):
         for j in range( indices[k], indices[k+1] ):   
             if state[j]:
@@ -198,27 +161,9 @@ def J3o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                     J[k,2, i+2] += w*vz * cubic_shape_factor( 2+dx )
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def J4o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
-    """
-    Current deposition for quartic particle shapes with open boundaries
-        
-    xs        : current particle positions
-    x_olds    : old particle positions
-    ws        : particle weights
-    vs        : particle velocities (3,Np)
-    J         : 3D current array
-    n_threads : number of parallel threads
-    indices   : particle index start/stop for each thread
-    q         : particle charge
-    xidx      : grid positions
-    state     : particle states
-    idx       : inverse dx
-    x0        : grid start position / dx
-    
-    No returns neccessary as arrays are modified in-place.
-    """
+    """ 4th order shapes with open boundaries """
     for k in numba.prange(n_threads):
         for j in range( indices[k], indices[k+1] ):   
             if state[j]:
@@ -268,27 +213,9 @@ def J4o( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                     J[k,2, i+3] += w*vz * quartic_shape_factor( 3+dx )
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def J1p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
-    """
-    Current deposition for linear particle shapes with periodic boundaries
-    
-    xs        : current particle positions
-    x_olds    : old particle positions
-    ws        : particle weights
-    vs        : particle velocities (3,Np)
-    J         : 3D current array
-    n_threads : number of parallel threads
-    indices   : particle index start/stop for each thread
-    q         : particle charge
-    xidx      : grid positions
-    state     : particle states
-    idx       : inverse dx
-    x0        : grid start position / dx
-    
-    No returns neccessary as arrays are modified in-place.
-    """
+    """ 1st order shapes with periodic boundaries """
     Nx = len(xidx)
     
     for k in numba.prange(n_threads):
@@ -344,30 +271,11 @@ def J1p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                     J[k,2, i-1] += w*vz * max( 0, dx ) 
                     J[k,2, i  ] += w*vz * max( 0, 1-abs(dx)   ) 
                     J[k,2, ip1] += w*vz * max( 0, -dx ) 
-
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def J2p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
-    """
-    Current deposition for quadratic particle shapes with periodic boundaries
-    
-    xs        : current particle positions
-    x_olds    : old particle positions
-    ws        : particle weights
-    vs        : particle velocities (3,Np)
-    J         : 3D current array
-    n_threads : number of parallel threads
-    indices   : particle index start/stop for each thread
-    q         : particle charge
-    xidx      : grid positions
-    state     : particle states
-    idx       : inverse dx
-    x0        : grid start position / dx
-    
-    No returns neccessary as arrays are modified in-place.
-    """
+    """ 2nd order shapes with periodic boundaries """
     Nx = len(xidx)
 
     for k in numba.prange(n_threads):
@@ -436,27 +344,9 @@ def J2p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                     J[k,2, ip2] += w*vz * quadratic_shape_factor( 2+dx )
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def J3p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
-    """
-    Current deposition for cubic particle shapes with periodic boundaries
-        
-    xs        : current particle positions
-    x_olds    : old particle positions
-    ws        : particle weights
-    vs        : particle velocities (3,Np)
-    J         : 3D current array
-    n_threads : number of parallel threads
-    indices   : particle index start/stop for each thread
-    q         : particle charge
-    xidx      : grid positions
-    state     : particle states
-    idx       : inverse dx
-    x0        : grid start position / dx
-    
-    No returns neccessary as arrays are modified in-place.
-    """
+    """ 3rd order shapes with periodic boundaries """
     Nx = len(xidx)
 
     for k in numba.prange(n_threads):
@@ -525,27 +415,9 @@ def J3p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                     J[k,2, ip2] += w*vz * cubic_shape_factor( 2+dx )
     return
 
-@numba.njit("(f8[::1], f8[::1], f8[::1], f8[:,::1], f8[:,:,::1], i8, i4[::1], f8, f8[::1], b1[::1], f8, f8)", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def J4p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
-    """
-    Current deposition for quartic particle shapes with periodic boundaries
-        
-    xs        : current particle positions
-    x_olds    : old particle positions
-    ws        : particle weights
-    vs        : particle velocities (3,Np)
-    J         : 3D current array
-    n_threads : number of parallel threads
-    indices   : particle index start/stop for each thread
-    q         : particle charge
-    xidx      : grid positions
-    state     : particle states
-    idx       : inverse dx
-    x0        : grid start position / dx
-    
-    No returns neccessary as arrays are modified in-place.
-    """
+    """ 4th order shapes with periodic boundaries """
     Nx = len(xidx)  
     
     for k in numba.prange(n_threads):
@@ -627,5 +499,4 @@ def J4p( xs, x_olds, ws, vs, J, n_threads, indices, q, xidx, state, idx, x0 ):
                     J[k,2, ip1] += w*vz * quartic_shape_factor( 1+dx ) 
                     J[k,2, ip2] += w*vz * quartic_shape_factor( 2+dx )
                     J[k,2, ip3] += w*vz * quartic_shape_factor( 3+dx )
-
     return

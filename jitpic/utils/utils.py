@@ -76,7 +76,7 @@ def default_inline_plotting_script( sim, fontsize=8 ):
 
         # sqrt(Sx) to retrieve the overall laser amplitude
         ax.plot(x, np.sqrt(abs(Sx))*np.sign(Sx)/a0, 
-            'r', label='$\sqrt{S_x}$', lw=1)
+            'r', label='$\sqrt{S_x}$', lw=1, alpha=0.5)
         
         # label the simulation time
         ax.text(.1,.1, r'$t=%.3f \tau_0$'%sim.t, transform=ax.transAxes)

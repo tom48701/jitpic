@@ -1,18 +1,7 @@
 """
 This module contains particle pushers
-"""
-# import the configuration first
-from ..config import parallel, cache, fastmath
-import numpy as np
-import numba
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1[::1])", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
-def cohen_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
-    """
-    Cohen particle push
-    http://dx.doi.org/10.1016/j.nima.2009.03.083
-    
+arguments
     E        : particle E-fields
     B        : particle B-fields
     qmdt     : constant factor
@@ -27,6 +16,20 @@ def cohen_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
     state    : particle states
     
     No returns neccessary as arrays are modified in-place.
+"""
+# import the configuration first
+from ..config import parallel, cache, fastmath
+import numba
+import numpy as np
+
+signature = "(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1[::1])"
+njit = numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
+
+@njit
+def cohen_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
+    """
+    Cohen particle push
+    http://dx.doi.org/10.1016/j.nima.2009.03.083
     """
 
     for i in numba.prange(N):
@@ -62,39 +65,20 @@ def cohen_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
             v[:,i] = p[:,i] * rg[i] / m
             
             # update x
-            x[i] = x[i] + v[0,i] * dt
-         
+            x[i] = x[i] + v[0,i] * dt  
     return
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1[::1])", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def vay_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
     """
     Vay particle push
     https://doi.org/10.1063/1.2837054
-    
-    E        : particle E-fields
-    B        : particle B-fields
-    qmdt     : constant factor: 2*pi*dt*q/m
-    p        : particle momenta
-    v        : particle velocities
-    x        : particle positions
-    x_old    : previous particle position
-    rg       : particle reciprocal gammas
-    m        : particle mass
-    dt       : timestep
-    N        : number of particles
-    state    : particle states
-    
-    No returns neccessary as arrays are modified in-place.
     """
-    # qmdt = 2*pi*dt*q/m
     for i in numba.prange(N):
         if state[i]:
 
             u = np.empty(3) # must be assigned within the loop to be private
-            
-            # tau = (pi*dt*q/m) * B
+
             tau = 0.5*qmdt*B[:,i]
             tau2 = tau[0]**2 + tau[1]**2 + tau[2]**2
             
@@ -131,34 +115,16 @@ def vay_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
     
             # update x
             x[i] = x[i] + v[0,i] * dt
-         
     return
 
-@numba.njit("(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1[::1])", 
-            parallel=parallel, cache=cache, fastmath=fastmath)
+@njit
 def boris_push( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, state):
     """
     Boris particle push
     
     Boris, J. P. 1970. "Relativistic Plasma Simulation-Optimization of a Hybrid Code." 
     In Proc. Fourth Conf. Num. Sim. Plasmas, 3–67. Naval Res. Lab., Wash., D. C.
-    
-    E        : particle E-fields
-    B        : particle B-fields
-    qmdt2    : constant factor
-    p        : particle momenta
-    v        : particle velocities
-    x        : particle positions
-    x_old    : previous particle position
-    rg       : particle reciprocal gammas
-    m        : particle mass
-    dt       : timestep
-    N        : number of particles
-    state    : particle states
-    
-    No returns neccessary as arrays are modified in-place.
-    """
-    
+    """ 
     for i in numba.prange(N):
         if state[i]:
             P = np.empty(3) # must be assigned within the loop to be private
@@ -192,6 +158,5 @@ def boris_push( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, state):
             v[:,i] = p[:,i] * rg[i] / m
             
             # update x
-            x[i] = x[i] + v[0,i] * dt
-         
+            x[i] = x[i] + v[0,i] * dt   
     return
