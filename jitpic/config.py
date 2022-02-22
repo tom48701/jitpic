@@ -7,16 +7,18 @@ import os
 parallel = True
 fastmath = True
 cache = True
+# numba runtime toggles
+if os.environ.get('JITPIC_DISABLE_PARALLEL', None) == '1':
+    parallel = False
+    
+if os.environ.get('JITPIC_DISABLE_CACHING', None) == '1':
+    cache = False 
+    
+if os.environ.get('JITPIC_DISABLE_FASTMATH', None) == '1':
+    fastmath = False
 
-# runtime toggles
-if 'JITPIC_DISABLE_PARALLEL' in os.environ:
-    if os.environ['JITPIC_DISABLE_PARALLEL'] == '1':
-        parallel = False
-        
-if 'JITPIC_DISABLE_CACHING' in os.environ:
-    if os.environ['JITPIC_DISABLE_CACHING'] == '1':
-        cache = False
-        
-if 'JITPIC_DISABLE_FASTMATH' in os.environ:
-    if os.environ['JITPIC_DISABLE_FASTMATH'] == '1':
-        fastmath = False
+# file overwriting policy
+allow_overwrite = False
+
+if os.environ.get('JITPIC_ALLOW_OVERWRITE', None) == '1':
+    allow_overwrite = True

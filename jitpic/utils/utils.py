@@ -1,8 +1,20 @@
+from ..config import allow_overwrite
+ 
 import os
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 
+def check_for_file(path):
+    """ Check for an existing file, remove if allowed"""
+    if os.path.exists(path) and os.path.isfile(path):
+        if allow_overwrite:
+            os.remove(path)
+        else:
+            raise OSError("The file %s already exists at the target location! "
+                          "Either specify a different filename, move/remove/rename the existing file, "
+                          "or set the 'JITPIC_ALLOW_OVERWRITE' environment variable"%path)    
+            
 def make_directory( dirpath, cwd=os.getcwd() ):
 
     cwd = Path(cwd)
@@ -15,6 +27,8 @@ def make_directory( dirpath, cwd=os.getcwd() ):
                 
     return
 
+
+
 def fft_data(x,y):
     N = len(x)
     T = (x[-1] - x[0]) /N
@@ -25,7 +39,7 @@ def fft_data(x,y):
     
     return xf, yf
 
-def default_inline_plotting_script( sim, fontsize=8 ):
+def summary_fig_func( sim, fontsize=8 ):
         """
         Plot a figure using information from the current simulation state
         
@@ -36,10 +50,10 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         
         # always use the get methods for the grid fields
         x = sim.grid.x
-        E = sim.grid.get_field('E') 
-        B = sim.grid.get_field('B')
-        J = sim.grid.get_field('J')
-        
+        E = sim.get_field('E') 
+        B = sim.get_field('B')
+        J = sim.get_field('J')
+        S = sim.get_field('S')
         # always use the get methods for the particle quantities
         # xp = sim.species[0].get_x()
         # gamma = sim.species[0].get_gamma()
@@ -51,7 +65,7 @@ def default_inline_plotting_script( sim, fontsize=8 ):
         except IndexError:
             a0 = 1.
             
-        Sx =  E[1]*B[2] - B[1]*E[2] # forward Poynting vector
+        Sx = S[0] # forward Poynting vector
     
         fig, ax = plt.subplots(figsize=(6,4)) # initialise the figure
         

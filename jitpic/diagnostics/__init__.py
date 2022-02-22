@@ -1,1 +1,2 @@
 from .timeseries_diagnostic import Timeseries_diagnostic
+from .particle_tracking_diagnostic import Particle_tracking_diagnostic

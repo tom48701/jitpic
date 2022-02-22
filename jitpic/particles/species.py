@@ -6,26 +6,49 @@ def default_profile(x):
 class Species:
     """ Particle Species """
     
-    def __init__(self, name, ppc, n, p0, p1, m=1., q=-1., eV=0., dens=None,
-                 p_x=0., p_y=0., p_z=0., ids=False):
+    def __init__(self, name, ppc, n, p0=-np.inf, p1=np.inf, 
+                 m=1., q=-1., T=0., dens=None,
+                 p_x=0., p_y=0., p_z=0., add_tags=False):
+        """ 
+        Initialise a new species 
+   
+        Parameters
+        ----------
+        name: str
+            Species name for diagnostics
+            
+        ppc: int, optional
+            Number of particles per cell (Default: 1).
+            
+        n: float (in critical densities), optional
+            Normalised density (Default: 1).
+            
+        p0: float, optional
+            Species start position (Default: -inf).
+            
+        p1: float, optional
+            Species end position (Default: inf).
+            
+        m: float (in electron masses), optional
+            Species mass (Default: 1).
+            
+        q: float (in elementary charges), optional
+            Species charge (Default: -1).
+            
+        T: float (in electron volts), optional
+            Species temperature (Default: 0).
+        
+        p_x, p_y, p_z: float, optional
+            Particle flow momentum (Defualt: 0)
+            
+        dens: func or None, optional
+            Function describing the density profile. When none is specified, a
+            flat profile is assumed by default (Default: None)
+  
+        add_tags: bool, optional
+            Add unique identifying tags to each particle for tracking purposes
+            (Default: False).
         """
-        name  : str    : species name for diagnostic purposes
-        ppc   : int    : number of particles per cell
-        p0    : float  : species start position
-        p1    : float  : species end position
-        m     : float  : particle mass in electron masses 
-        q     : float  : particle charge in elementary charges 
-        eV    : flaot  : species temperature in electron volts (
-        dens  : func   : function describing the density profile. The function
-                         takes a single argument; the grid x-positions with the
-                         sane shape as grid.x, and similarly should return an 
-                         array with the same shape as grid.x densities 
-                         specified by functions are normalised to the
-                         reference density species.n
-        p_(i) : float  : flow momenta
-        ids   : bool   : add particle IDs for tracking (unimplemented)
-        """
-
         self.name = name 
         self.dfunc = dens 
         self.m = m 
@@ -36,10 +59,10 @@ class Species:
         self.p0 = p0 
         self.p1 = p1 
         self.ddx = None # inter-particle half-spacing (set later)
-        self.ids = ids
+        self.add_tags = add_tags
         
-        self.eV = eV
-        self.Ek = self.eV / 5.11e5 # / electron rest mass energy
+        self.T = T
+        self.Ek = self.T / 5.11e5 # / electron rest mass energy
         self.p_th = np.sqrt(self.Ek**2 + 2.*self.Ek*self.m) / np.sqrt(3) # thermal momentum
         self.p_th_reduced = self.p_th/np.sqrt(2.) # reduced thermal momentum
         self.p_flow = np.array([p_x, p_y, p_z]) # flow momentum
@@ -60,19 +83,39 @@ class Species:
         """
         dx = grid.dx
         x = grid.x
-        
         self.ddx = dx/(2*self.ppc) # inter-particle half-spacing
+        
+        p0 = self.p0
+        p1 = self.p1
+
+        if np.isinf(p0):
+            p0 = grid.x0
+            
+        min_cell = max( 0,         int(p0/dx - grid.x0/dx)     )    
 
         if grid.boundaries == 'open':
-            min_cell = max( 0,         int(self.p0/dx - grid.x0/dx)     )
-            max_cell = min( grid.Nx-1, int(self.p1/dx - grid.x0/dx + 1) )
+            if np.isinf(p1):
+                p1 = grid.x1
+                
+            max_cell = min( grid.Nx-1, int(p1/dx - grid.x0/dx + 1) )
             
             N = self.ppc*(max_cell-min_cell)
             x = np.linspace( x[min_cell]+self.ddx, x[max_cell]-self.ddx, N )
             
         elif grid.boundaries == 'periodic':
-            N = self.ppc*grid.Nx
-            x = np.linspace( x[0] + self.ddx, x[-1]+dx - self.ddx, N)
+            if np.isinf(p1):
+                p1 = grid.x1 + grid.dx
+            
+            max_cell = int(p1/dx - grid.x0/dx + 1) 
+            
+            if max_cell > grid.Nx-1:
+                p_max = x[-1] + grid.dx
+            else:
+                p_max = x[max_cell]
+                
+            N = min(self.ppc*grid.Nx, self.ppc*(max_cell-min_cell) )
+
+            x = np.linspace( x[min_cell]+self.ddx, p_max-self.ddx, N )
             
             
         w = np.full(N, self.n/self.ppc) * self.dfunc(x) 
@@ -91,9 +134,9 @@ class Species:
         self.N_alive = self.N # all particles should be alive at first
         
         # register particle IDs and a total particle count
-        if self.ids:
+        if self.add_tags:
             self.Ntot = self.N_alive
-            self.id = np.arange(self.N_alive, dtype=int)
+            self.tags = np.arange(self.N_alive, dtype=int)
             
         p = np.zeros((3,self.N))       
 
@@ -151,20 +194,26 @@ class Species:
             self.r = np.pad( self.r, (0,ppc), constant_values=(0,grid.Nx-1) )
             
             # expand IDs
-            if self.ids:
-                self.id = np.pad( self.id, (0,ppc), 'empty')
+            if self.add_tags:
+                self.tags = np.pad( self.tags, (0,ppc), 'empty')
                 new_ids = np.arange( self.Ntot, self.Ntot+ppc, dtype=int)
-                self.id[-ppc:] = new_ids
+                self.tags[-ppc:] = new_ids
                 self.Ntot += ppc
                 
-            # calculate thermal motion
-            if self.eV != 0.:
+            # add thermal and flow momentum
+            if self.T != 0. or (self.p_flow**2).sum() != 0.:
  
                 self.p  = np.pad( self.p, ((0,0),(0,ppc)), 'empty')
                 self.v  = np.pad( self.v, ((0,0),(0,ppc)), 'empty' )
                 self.rg = np.pad( self.rg, (0,ppc), 'empty' )
                 
-                p = np.random.normal(0., self.p_th_reduced, ((3,ppc)) )
+                #p = np.random.normal(0., self.p_th_reduced, ((3,ppc)) )
+
+                p = np.ones((3,ppc))     
+                p[0,:] = self.p_flow[0] * p[0,:] + np.random.normal(0., self.p_th_reduced, self.ppc) 
+                p[1,:] = self.p_flow[1] * p[1,:] + np.random.normal(0., self.p_th_reduced, self.ppc) 
+                p[2,:] = self.p_flow[2] * p[2,:] + np.random.normal(0., self.p_th_reduced, self.ppc)  
+
                 rg = 1./np.sqrt(1. + (p**2).sum(axis=0)/self.m**2) 
                 v = p*rg / self.m 
                 
@@ -192,11 +241,9 @@ class Species:
         """
         Sort the particle arrays using a specified quantity, 
         return the sorting indices also
-        """        
-        #sort = np.arange( self.N, dtype=int )
-        #np.random.shuffle( sort )
+        """   
+        
         sort = np.argsort( getattr( self, key) )
-        #self.sort = sort
         
         self.state[:] = self.state[sort]
         self.x[:] = self.x[sort]
@@ -205,8 +252,8 @@ class Species:
         self.rg[:] = self.rg[sort]
         self.l[:] = self.l[sort]
         self.r[:] = self.r[sort]
-        if self.ids:
-            self.id[:] = self.id[sort]
+        if self.add_tags:
+            self.tags[:] = self.tags[sort]
             
         # broadcast indexing a 2D-array causes the order to change to F for some reason,
         # must be changed back to C or numba throws a fit
@@ -217,7 +264,6 @@ class Species:
 
         return sort
 
-    
     def compact_2D_array(self, arr):
         """
         Compute a compacted 2D array
@@ -249,8 +295,8 @@ class Species:
         self.rg = self.rg[state]
         self.l = self.l[state]
         self.r = self.r[state]
-        if self.ids:
-            self.id = self.id[state]
+        if self.add_tags:
+            self.tags = self.tags[state]
             
         # 2D arrays are slightly more involved
         self.v = self.compact_2D_array( self.v )
@@ -287,6 +333,6 @@ class Species:
         """Return only living particle KEs"""
         return (1./self.rg[self.state]  - 1.)*self.w[self.state] 
     
-    def get_IDs(self):
+    def get_tags(self):
         """Return only living particle IDs"""
-        return self.id[self.state]
+        return self.tags[self.state]
