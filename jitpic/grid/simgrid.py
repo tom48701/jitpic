@@ -3,7 +3,7 @@ import numpy as np
 class Simgrid:
     """1D simulation grid"""
 
-    def __init__(self, x0, x1, Nx, n_threads, boundaries, particle_shape=1):
+    def __init__(self, xmin, xmax, Nx, n_threads, boundaries, particle_shape=1):
         """
         Initialise the simulation grid.
         
@@ -15,11 +15,11 @@ class Simgrid:
 
         Parameters
         ----------
-        x0: float
-            Grid start point, must be < x1.
+        xmin: float
+            Grid start point, must be < xmax.
            
-        x1: float
-            Grid end point, must be > x0.
+        xmax: float
+            Grid end point, must be > xmin.
           
         Nx: int
             Number of cells.
@@ -37,11 +37,12 @@ class Simgrid:
             extra cells are to be added to the grid (Default: 1).
         """
         # register the start/end/number of gridpoints
-        self.x0 = float(x0)
-        self.x1 = float(x1)
+        assert xmin < xmax, 'Check grid limits!'
+        self.x0 = float(xmin)
+        self.x1 = float(xmax)
         self.Nx = Nx
         # define the gridpoints, cell size and inverse cell size
-        self.x = np.linspace(x0, x1, Nx, endpoint=True)
+        self.x = np.linspace(self.x0, self.x1, Nx, endpoint=True)
         self.dx = self.x[1] - self.x[0]
         self.idx = 1./self.dx
         # define the cell midpoints
@@ -49,6 +50,8 @@ class Simgrid:
         # charge density arrays
         self.rho = np.zeros(self.Nx)
         self.rho_2D = np.zeros((n_threads,self.Nx))
+        # register a list of gettable grid fields
+        self.gettable_fields = ('E','B','J','S','u')
         # open boundaries:
         # E and B require at least one extra cell on the end for field solving
         # and probably more for interpolation. J also requires extra cells for interpolation
@@ -105,12 +108,13 @@ class Simgrid:
         
         Parameters
         ----------
-        field: str (`E`, `B`, `J` or `S`)
+        field: str
             Field to extract
             - `E` returns the electric field.
             - `B` returns the magnetic field.
             - `J` returns the most recent current deposition.
             - `S` returns the Poynting vector.
+            - `u` returns the energy density per cell
               
         Returns
         -------
@@ -118,14 +122,19 @@ class Simgrid:
             The specified field
         """
         if field == 'J':
-            f = getattr(self, field)[:,:self.NJ]
+            f = self.J[:,:self.NJ]
         elif field in ('E','B'):
             f = getattr(self, field)[:,:self.NEB]
         elif field == 'S':
-            E = getattr(self, 'E')[:,:self.NEB]
-            B = getattr(self, 'B')[:,:self.NEB]
+            E = self.E[:,:self.NEB]
+            B = self.B[:,:self.NEB]
             f = np.cross( E.T, B.T).T
+        elif field == 'u':
+            E = self.E[:,:self.NEB]
+            B = self.B[:,:self.NEB]
+            f = 0.5*(E**2 + B**2)
         else:
             print('unrecognised field')
             return
         return f
+    

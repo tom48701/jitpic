@@ -17,10 +17,11 @@ from .numba_functions import function_dict
 class Simulation:
     """
     The main simulation class, containing all the PIC methods, related
-    functions and diagnostic methods.
+    functions and diagnostics
     """
-    def __init__(self, x0, x1, Nx, species=[], 
-                 particle_shape=1, diag_period=0, 
+    def __init__(self, xmin, xmax, Nx, species=[], 
+                 particle_shape=1, diag_period=0, diag_fields=['E'], 
+                 diag_rho=True, diag_species=[],
                  plotfunc=summary_fig_func,
                  n_threads=numba.get_num_threads(), seed=0,
                  resize_period=100, boundaries='open',
@@ -35,16 +36,16 @@ class Simulation:
         
         Parameters
         ----------
-        x0: float
-            Grid start point, must be < x1.
+        xmin: float
+            Grid start point, must be < xmax.
            
-        x1: float
-            Grid end point, must be > x0.
+        xmax: float
+            Grid end point, must be > xmin.
           
         Nx: int
             Number of cells.
             
-        species: list, optional
+        species: list of `Species` instances, optional
             A list of `Species` objects to initialise with the simulation
             (Default: empty).
             
@@ -57,7 +58,20 @@ class Simulation:
             The number of steps between diagnostic writes. All diagnostics
             are governed by this write period. A value of zero turns off all
             diagnostics (Default: 0).
-            
+        
+        diag_fields: list of str, optional
+            The fields to write to record in grid diagnostic files. Can be any
+            or all of the viable grid.get_field options; `E`, `B`, `J`, `S` or
+            `u` (Default: `E` only).
+        
+        diag_species: list of `Species` isntances, optional
+            A list of particle species of whose individual charge densities
+            will be recorded with the field diagnostics. 
+        
+        diag_rho,: bool, optional
+            Whether or not to write the total charge density on the grid as part
+            of the field diagnostics (Default: True).
+        
         plotfunc: func or None, optional
             The function called during writes to generate a figure. The
             function must take the simulation object as an argument, and return
@@ -97,6 +111,7 @@ class Simulation:
         pusher: str, optional
             Set the particle pusher to use. Currently implemented are: `boris`,
             `vay`, 'cohen`. (Default: `cohen`)
+            
         moving_window: bool, optional
             Set the moving window state. Cannot be used with periodic 
             boundaries (Default: False).
@@ -113,7 +128,7 @@ class Simulation:
         
         Notes
         -----
-        The plotting function use signature must be as follows:
+        The plotting function signature must be as follows:
             
             ```fig = plotting_function(sim)```
             
@@ -142,7 +157,7 @@ class Simulation:
         self.particle_shape = particle_shape
         self.boundaries = boundaries
         # initialise the simulation grid and register the timestep (dt == dx)
-        self.grid = Simgrid(x0, x1, Nx, self.n_threads, self.boundaries, particle_shape=self.particle_shape)
+        self.grid = Simgrid(xmin, xmax, Nx, self.n_threads, self.boundaries, particle_shape=self.particle_shape)
         self.dt = self.grid.dx
         ## choose the correct numba functions based on simulation settings
         # set the particle reseating function
@@ -176,6 +191,10 @@ class Simulation:
         self.diag_period = diag_period 
         self.diagdir = diagdir
         self.imagedir = imagedir
+        # register the fields and species to report
+        self.diag_fields = diag_fields
+        self.diag_species = diag_species
+        self.diag_rho = diag_rho
         # register the plotting function
         self.inline_plotting_script = plotfunc
         # register no external fields initially
@@ -212,15 +231,17 @@ class Simulation:
         # print summary information
         if not silent:
             print( 'Starting from t = %f'%self.t )
-            print( 'performing %i PIC cycles from from step %i\n'%(N, self.iter) )
+            print( 'performing %i PIC cycles from from step %i'%(N, self.iter), end='' )
             if self.moving_window:
-                print('Moving window active')
+                print('\nMoving window active\n')
+            else:
+                print('\n')
         # timing information
         t0 = time.time()
         t1 = t0
-        # p,v must be offset to n=-1/2 before the first step
-        if self.iter == 0:
-            self.apply_initial_offset_to_pv()
+        # p,v must(?) be offset to n=-1/2 before the first step
+        #if self.iter == 0:
+        #    self.apply_initial_offset_to_pv()
         # begin the loop
         for i in range(N):
             ## periodic diagnostic operations
@@ -463,7 +484,7 @@ class Simulation:
         pidt = np.pi*self.dt
         # advance longitudinal E field
         grid.E[0,:grid.NEB] -= 2. * pidt * grid.J[0,:grid.NJ]
-        # define intermediary P and S fields
+        # define transverse P and S fields
         PR = (grid.E[1] + grid.B[2]) * .5
         PL = (grid.E[1] - grid.B[2]) * .5
         SR = (grid.E[2] - grid.B[1]) * .5
@@ -500,15 +521,14 @@ class Simulation:
             E = spec.E
             B = spec.B
             # apply any external fields
-            if len(self.external_fields) > 0:
-                for ext_field in self.external_fields:
-                    if ext_field.field == 'E':   
-                        E = ext_field.add_field(x, self.t, E)
-                    else:
-                        B = ext_field.add_field(x, self.t, B)
+            for ext_field in self.external_fields:
+                if ext_field.field == 'E':   
+                    E = ext_field.add_field(x, self.t, E)
+                else:
+                    B = ext_field.add_field(x, self.t, B)
             # push particles
             self.particle_push_func( E, B, dt*self.pushconst*spec.qm, spec.p, spec.v, x, spec.x_old, 
-                                    spec.rg, spec.m, dt, spec.N, spec.state) 
+                                    spec.rg, dt, spec.N, spec.state) 
         return
 
     def reseat_particles(self):
@@ -627,35 +647,38 @@ class Simulation:
         return t1
     
     def write_grid_diagnostics(self):
-        """ Write all grid quantities to file. """
-        make_directory(self.diagdir)
-        fname = '%s/diags-%.8i.h5'%(self.diagdir, self.iter)
-        if os.path.exists(fname):
-            check_for_file(fname)
-        # write the new file
-        with h5py.File(fname, 'w') as f:
-            # create attributes
-            f.attrs['iter'] = self.iter
-            f.attrs['time'] = self.t
-            f.attrs['dt'] = self.dt
-            # get fields to write
-            E = self.grid.get_field('E')
-            B = self.grid.get_field('B')
-            J = self.grid.get_field('J')
-            # create the datasets
-            f.create_dataset('x', data=self.grid.x)
-            f.create_dataset('Ex', data=E[0] )
-            f.create_dataset('Ey', data=E[1] )
-            f.create_dataset('Ez', data=E[2] )
-            f.create_dataset('Bx', data=B[0] )
-            f.create_dataset('By', data=B[1] )
-            f.create_dataset('Bz', data=B[2] )
-            f.create_dataset('Jx', data=J[0] )
-            f.create_dataset('Jy', data=J[1] )
-            f.create_dataset('Jz', data=J[2] )    
-            f.create_dataset('rho', data=self.deposit_rho())
-            for spec in self.species:
-                f.create_dataset(spec.name, data=self.deposit_single_species(spec) )
+        """ Write selected grid quantities to file. """
+        # skip if there are no fields to write
+        if len(self.diag_fields) > 0:
+            # make the diag directory
+            make_directory(self.diagdir)
+            fname = '%s/diags-%.8i.h5'%(self.diagdir, self.iter)
+            # check for an existing file
+            if os.path.exists(fname):
+                check_for_file(fname)
+            # write the new file
+            with h5py.File(fname, 'w') as f:
+                # create attributes
+                f.attrs['iter'] = self.iter
+                f.attrs['time'] = self.t
+                f.attrs['dt'] = self.dt
+                # x dataset is always written
+                f.create_dataset('x', data=self.grid.x)
+                # parse the list of fields to write
+                for field in self.diag_fields:
+                    if field in self.grid.gettable_fields:
+                        F = self.get_field(field)
+                        # create the group and datasets
+                        g = f.create_group(field)
+                        g.create_dataset('x', data=F[0] )
+                        g.create_dataset('y', data=F[1] )
+                        g.create_dataset('z', data=F[2] )
+                # parse the list of species rho to write
+                for spec in self.diag_species:
+                    f.create_dataset('rho_%s'%spec.name, data=self.deposit_single_species(spec) )
+                # report the total charge density
+                if self.diag_rho:
+                    f.create_dataset('rho', data=self.deposit_rho() )
         return
         
     def write_figure(self, index=None, dpi=220):

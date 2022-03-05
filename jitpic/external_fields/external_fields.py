@@ -25,6 +25,28 @@ class External_field:
             
         function: func or None, optional
             Field profile, uniform if none specified (Default: None).
+        
+        Notes
+        -----
+        The field function signature must be as follows:
+            
+            ```F = field_function(x,t)```
+            
+            Parameters
+            ----------
+            x: array of floats
+                Current particle positions
+            
+            t: float
+                Current simulation time
+                
+            Returns
+            -------
+            F: array
+                Particle field to be added
+
+        
+        Beyond this, the contents are entirely down to the user.
         """
         # register quantities
         self.field = field

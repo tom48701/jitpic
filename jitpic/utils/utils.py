@@ -12,8 +12,8 @@ def check_for_file(path):
             os.remove(path)
         else:
             raise OSError("The file %s already exists at the target location! "
-                          "Either specify a different filename, move/remove/rename the existing file, "
-                          "or set the 'JITPIC_ALLOW_OVERWRITE' environment variable"%path)    
+                          "Either specify a different filename or move/remove/rename the existing file. "
+                          "This error has been raised because the 'JITPIC_FORBID_OVERWRITE' environment variable is set"%path)    
             
 def make_directory( dirpath, cwd=os.getcwd() ):
 
@@ -49,9 +49,9 @@ def summary_fig_func( sim, fontsize=8 ):
         # define shortcuts for the quantities to be used
         
         # always use the get methods for the grid fields
-        x = sim.grid.x
+        grid = sim.grid
+        x = grid.x
         E = sim.get_field('E') 
-        B = sim.get_field('B')
         J = sim.get_field('J')
         S = sim.get_field('S')
         # always use the get methods for the particle quantities
@@ -88,29 +88,30 @@ def summary_fig_func( sim, fontsize=8 ):
         ax.plot(x, E[0] - 1., 
             'b', label='$E_x$', lw=1)
 
-        # sqrt(Sx) to retrieve the overall laser amplitude
-        ax.plot(x, np.sqrt(abs(Sx))*np.sign(Sx)/a0, 
+        # Poynting vector (light intensity and direction)
+        ax.plot(x, Sx/a0**2, 
             'r', label='$\sqrt{S_x}$', lw=1, alpha=0.5)
         
         # label the simulation time
         ax.text(.1,.1, r'$t=%.3f \tau_0$'%sim.t, transform=ax.transAxes)
         
-        # calculate the total EM energy on the grid
-        Eem = (( (E**2).sum(axis=0) + (B**2).sum(axis=0) )  ).sum() * sim.grid.dx / 2.
+        # calculate the total EM energy density on the grid
+        Eem = grid.get_field('u').sum() 
         
-        # calculate the total kinetic energy in the particles
+        # calculate the total kinetic energy density of the particles
         Ek = 0.
         for spec in sim.species:
-            Ek += ( spec.get_KE() * sim.grid.dx ).sum() 
+            Ek += spec.get_u().sum() * spec.m
         
-        # show the total energy (should not increase over the simulation) ((much)) 
-        ax.text(.1,.9, r'$\mathcal{E}_{\mathrm{EM}}=%.3e $'%Eem, transform=ax.transAxes)
-        ax.text(.1,.8, r'$\mathcal{E}_{\mathrm{K}}=%.3e $'%Ek,  transform=ax.transAxes)
-        ax.text(.6,.9, r'$\mathcal{E}_{\mathrm{EM}}+\mathcal{E}_{\mathrm{K}}=%.3e $'%(Ek+Eem), transform=ax.transAxes)
+        # show the energy densities (total should not increase over the simulation) ((much)) 
+        ax.text(.1,.9, r'$U_{\mathrm{EM}}=%.3e $'%Eem, transform=ax.transAxes)
+        ax.text(.1,.8, r'$U_{\mathrm{K}}=%.3e $'%Ek,  transform=ax.transAxes)
+        ax.text(.6,.9, r'$U_{\mathrm{EM}}+U_{\mathrm{K}}=%.3e $'%(Ek+Eem), transform=ax.transAxes)
         
         # set some figure parameters
-        ax.set_xlim(sim.grid.x0, sim.grid.x1)
+        ax.set_xlim(grid.x0, grid.x1)
         ax.set_ylim(-2,2)
+        ax.tick_params(left=False, labelleft=False)
         ax.legend(loc='lower right', fontsize=fontsize)
         ax.set_xlabel('$x/\lambda_0$', fontsize=fontsize)
         fig.tight_layout()

@@ -15,10 +15,10 @@ class Species:
         Parameters
         ----------
         name: str
-            Species name for diagnostics
+            Species name for diagnostics.
             
         ppc: int, optional
-            Number of particles per cell (Default: 1).
+            Number of particles per cell.
             
         n: float (in critical densities), optional
             Normalised density (Default: 1).
@@ -49,6 +49,7 @@ class Species:
             Add unique identifying tags to each particle for tracking purposes
             (Default: False).
         """
+        # check the name does not infringe on grid-reserved names
         self.name = name 
         self.dfunc = dens 
         self.m = m 
@@ -60,13 +61,11 @@ class Species:
         self.p1 = p1 
         self.ddx = None # inter-particle half-spacing (set later)
         self.add_tags = add_tags
-        
         self.T = T
-        self.Ek = self.T / 5.11e5 # / electron rest mass energy
-        self.p_th = np.sqrt(self.Ek**2 + 2.*self.Ek*self.m) / np.sqrt(3) # thermal momentum
+        self.Ek = self.T / (self.m * 510998.9499961642) # convert to terms of species rest mass energy
+        self.p_th = np.sqrt(self.Ek**2 + 2.*self.Ek) # thermal momentum
         self.p_th_reduced = self.p_th/np.sqrt(2.) # reduced thermal momentum
         self.p_flow = np.array([p_x, p_y, p_z]) # flow momentum
-        
         # use the default (flat) density profile if none is specified
         if dens is None:
             self.dfunc = default_profile
@@ -146,10 +145,10 @@ class Species:
         p[2,:] = self.p_flow[2] * np.ones(self.N) + np.random.normal(0., self.p_th_reduced, self.N) 
         self.p = p
         
-        self.rg = 1./np.sqrt(1. + (self.p**2).sum(axis=0)/self.m**2)  # reciprocal gamma factor      
+        self.rg = 1./np.sqrt(1. + (self.p**2).sum(axis=0) )  # reciprocal gamma factor      
         
         self.v = np.zeros_like(self.p)
-        self.v[:,:] = self.p[:,:] * self.rg / self.m
+        self.v[:,:] = self.p[:,:] * self.rg 
         
         # setup array to contain the left and right cell indices
         self.l = np.zeros(self.N, dtype=np.dtype('u4'))
@@ -214,7 +213,7 @@ class Species:
                 p[1,:] = self.p_flow[1] * p[1,:] + np.random.normal(0., self.p_th_reduced, self.ppc) 
                 p[2,:] = self.p_flow[2] * p[2,:] + np.random.normal(0., self.p_th_reduced, self.ppc)  
 
-                rg = 1./np.sqrt(1. + (p**2).sum(axis=0)/self.m**2) 
+                rg = 1./np.sqrt(1. + (p**2).sum(axis=0) ) 
                 v = p*rg / self.m 
                 
                 self.p[:,-ppc:]  = p
@@ -310,29 +309,33 @@ class Species:
         return
     
     def get_x(self):
-        """Return only living particle positions"""
+        """Return particle positions"""
         return self.x[self.state]
     
     def get_p(self):
-        """Return only living particle momenta"""
+        """Return particle momenta"""
         return self.p[:,self.state]
     
     def get_gamma(self):
-        """Return only living particle gamma factors"""
+        """Return particle gamma factors"""
         return 1./self.rg[self.state]
     
     def get_w(self):
-        """Return only living particle weights"""
+        """Return particle weights"""
         return self.w[self.state]
     
     def get_v(self):
-        """Return only living particle velocities """
+        """Return particle velocities in terms of c """
         return self.v[:,self.state]
 
     def get_KE(self):
-        """Return only living particle KEs"""
-        return (1./self.rg[self.state]  - 1.)*self.w[self.state] 
+        """ Return particle KE in terms of particle rest mass energy. """
+        return (1./self.rg - 1.)[self.state]
+    
+    def get_u(self):
+        """ Return particle KE density per particle """
+        return ((1./self.rg - 1.)*self.w)[self.state]
     
     def get_tags(self):
-        """Return only living particle IDs"""
+        """Return particle IDs"""
         return self.tags[self.state]

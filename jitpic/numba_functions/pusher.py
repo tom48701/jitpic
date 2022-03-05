@@ -22,11 +22,11 @@ from ..config import parallel, cache, fastmath
 import numba
 import numpy as np
 
-signature = "(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, f8, i8, b1[::1])"
+signature = "(f8[:,::1], f8[:,::1], f8, f8[:,::1], f8[:,::1], f8[::1], f8[::1], f8[::1], f8, i8, b1[::1])"
 njit = numba.njit(signature, parallel=parallel, cache=cache, fastmath=fastmath)
 
 @njit
-def cohen_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
+def cohen_push( E, B, qmdt, p, v, x, x_old, rg, dt, N, state):
     """
     Cohen particle push
     http://dx.doi.org/10.1016/j.nima.2009.03.083
@@ -62,14 +62,14 @@ def cohen_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
             x_old[i] = x[i]
             
             # update v
-            v[:,i] = p[:,i] * rg[i] / m
+            v[:,i] = p[:,i] * rg[i] 
             
             # update x
             x[i] = x[i] + v[0,i] * dt  
     return
 
 @njit
-def vay_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
+def vay_push( E, B, qmdt, p, v, x, x_old, rg, dt, N, state):
     """
     Vay particle push
     https://doi.org/10.1063/1.2837054
@@ -111,14 +111,14 @@ def vay_push( E, B, qmdt, p, v, x, x_old, rg, m, dt, N, state):
             x_old[i] = x[i]
             
             # update v
-            v[:,i] = p[:,i] * rg[i] / m
+            v[:,i] = p[:,i] * rg[i] 
     
             # update x
             x[i] = x[i] + v[0,i] * dt
     return
 
 @njit
-def boris_push( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, state):
+def boris_push( E, B, qmdt2, p, v, x, x_old, rg, dt, N, state):
     """
     Boris particle push
     
@@ -155,7 +155,7 @@ def boris_push( E, B, qmdt2, p, v, x, x_old, rg, m, dt, N, state):
             x_old[i] = x[i]
             
             # update v
-            v[:,i] = p[:,i] * rg[i] / m
+            v[:,i] = p[:,i] * rg[i]
             
             # update x
             x[i] = x[i] + v[0,i] * dt   
