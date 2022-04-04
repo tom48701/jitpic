@@ -46,7 +46,7 @@ elec = Species('elec', ppc, n_e, p0, p1, dens=dens )
 sim = Simulation( x0, x1, Nx, species=[elec], diag_period=50*res )
 
 #add a timeseries diagnostic
-sim.add_timeseries_diagnostic( cells=[ int((x-x0)*res) for x in [0, 150] ], fields=['E'] )
+sim.add_timeseries_diagnostic( pos=[ 0, 150 ], fields=['E'] )
 
 # add lasers and external fields
 sim.add_laser(a0, p=p, x0=centroid, ctau=ctau, clip=3*ctau )

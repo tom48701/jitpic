@@ -30,7 +30,7 @@ p1 = 1000. # plasma end position
 
 # initialise the particle species 
 
-elec = Species('elec', ppc, n_e, p0, p1, m=1., q=-1., eV=0.)
+elec = Species('elec', ppc, n_e, p0, p1, m=1., q=-1., T=0.)
 
 # initialise simulation object
 sim = Simulation( x0, x1, Nx, species=[elec], diag_period=50*res )
