@@ -1,5 +1,7 @@
 """
-JitPIC configuration file
+JitPIC configuration file.
+
+Set the numba compilation rules, and govern the file replacement behaviour
 """
 import os
 

@@ -87,10 +87,9 @@ class Simulation:
             benefit from being set to half of the maximum, as numba cannot 
             distinguish between logical and physical cores.
             
-        seed: int, optional
+        seed: int or None, optional
             Set the RNG seed (ensures reproducability between runs). If a
-            varying random seed is desired, this value can be set dynamically
-            at runtime. The system clock is a good source for varying seeds
+            varying random seed is desired between runs, set as None.
             (Default: 0).
         
         resize_period: int, optional
@@ -144,9 +143,12 @@ class Simulation:
         
         Beyond this, the contents are entirely down to the user.
         """
-        # set the RNG seed for reproducability
+        # set the RNG seed, or leave it blank to let results differ between runs
+        if seed is not None:
+            np.random.seed(seed)
+        else:
+            np.random.seed()
         self.seed = seed
-        np.random.seed(seed)
         # register the number of threads, and set the numba variable accordingly
         self.n_threads = n_threads
         numba.set_num_threads(n_threads)
@@ -240,8 +242,8 @@ class Simulation:
         t0 = time.time()
         t1 = t0
         # p,v must(?) be offset to n=-1/2 before the first step
-        #if self.iter == 0:
-        #    self.apply_initial_offset_to_pv()
+        if self.iter == 0:
+            self.apply_initial_offset_to_pv()
         # begin the loop
         for i in range(N):
             ## periodic diagnostic operations
@@ -339,10 +341,15 @@ class Simulation:
         add_tags: bool, optional
             Add unique identifying tags to each particle for tracking purposes
             (Default: False).
+            
+        Returns
+        -------
+        new_species: Species
+            The newly-created particle species
         """
         new_species = Species( name, ppc, n, p0, p1, dens=dens, m=m, q=q, T=T, add_tags=add_tags )
         self.append_species( new_species ) 
-        return
+        return new_species
     
     def append_species(self, spec):
         """ Initialise and append a species object to the list of species. """

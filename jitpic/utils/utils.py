@@ -3,6 +3,7 @@ from ..config import allow_overwrite
 import os
 import numpy as np
 from pathlib import Path
+from decimal import Decimal
 import matplotlib.pyplot as plt
 
 def check_for_file(path):
@@ -28,6 +29,19 @@ def make_directory( dirpath, cwd=os.getcwd() ):
     return
 
 
+def fmexp(number, places=2):
+    """
+    Separate a number into its mantissa and exponent and return as a string
+    (purely decorative)
+    """
+    (sign, digits, exponent) = Decimal(number).as_tuple()
+    exp = len(digits) + exponent - 1
+    man = float(Decimal(number).scaleb(-exp).normalize())
+    if man == 10.:
+        man = 1.
+        exp += 1
+    manstr = '{man:.{places}f}'.format( man=man, places=places )
+    return r'%s\times10^{%i}'%(manstr, exp)
 
 def fft_data(x,y):
     N = len(x)
@@ -90,7 +104,7 @@ def summary_fig_func( sim, fontsize=8 ):
 
         # Poynting vector (light intensity and direction)
         ax.plot(x, Sx/a0**2, 
-            'r', label='$\sqrt{S_x}$', lw=1, alpha=0.5)
+            'r', label='$S_x$', lw=1, alpha=0.5)
         
         # label the simulation time
         ax.text(.1,.1, r'$t=%.3f \tau_0$'%sim.t, transform=ax.transAxes)

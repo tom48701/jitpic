@@ -44,7 +44,6 @@ class External_field:
             -------
             F: array
                 Particle field to be added
-
         
         Beyond this, the contents are entirely down to the user.
         """

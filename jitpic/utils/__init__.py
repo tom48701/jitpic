@@ -1,1 +1,1 @@
-from .utils import make_directory, summary_fig_func, fft_data, check_for_file
+from .utils import make_directory, summary_fig_func, fft_data, fmexp, check_for_file

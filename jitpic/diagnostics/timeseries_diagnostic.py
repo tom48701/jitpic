@@ -42,12 +42,12 @@ class Timeseries_diagnostic:
         fname: str, optional
             Timeseries file name (Default: `timeseries`).
         """
+        # nonzero diagnostic period required
+        assert sim.diag_period > 0, 'diag_period must be > 0 to initialise a timeseries diagnostic'
         print('Initialising a new timeseries diagnostic at step %i'%sim.iter)
         fstr = ', '.join([f for f in fields])
         print('Tracking (%s) fields at %i points'%(fstr, len(pos)))
         print('Saving data in: %s\n'%fname)
-        # nonzero diagnostic period required
-        assert sim.diag_period > 0, 'diag_period must be > 0 to initialise a timeseries diagnostic'
         # register the simulation object
         self.sim = sim
         # the list of fields and cells to track

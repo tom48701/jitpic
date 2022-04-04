@@ -51,10 +51,13 @@ class Particle_tracking_diagnostic:
         fname: str
             Tracking file name (Default: `tracking`)
         """
-        print('Initialising a new particle tracking diagnostic at step %i'%sim.iter)
-        print('Tracking %i particles from species: %s\n'%(len(tags), species.name))
+        # check tags present
+        assert species.add_tags, 'Target species must have tags turned on!'
         # nonzero diagnostic period required
         assert sim.diag_period > 0, 'diag_period must be > 0 to initialise a tracking diagnostic'
+        print('Initialising a new particle tracking diagnostic at step %i'%sim.iter)
+        print('Tracking %i particles from species: %s\n'%(len(tags), species.name))
+
         # register the simulation and species objects
         self.sim = sim
         self.species = species
